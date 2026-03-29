@@ -1,0 +1,90 @@
+# Ignore everything by default
+*
+
+# Allow directories themselves
+!fpga/
+!cpu/
+!gpu/
+
+# Allow traversal into subdirectories
+!fpga/**
+!cpu/**
+!gpu/**
+
+# Now re-ignore everything inside them
+fpga/*
+cpu/*
+gpu/*
+
+# Allow directories recursively
+!fpga/**/
+!cpu/**/
+!gpu/**/
+
+########################################
+# Allowed file types in these dirs
+########################################
+
+# SystemVerilog
+!fpga/**/*.sv
+!fpga/**/*.svh
+!cpu/**/*.sv
+!cpu/**/*.svh
+!gpu/**/*.sv
+!gpu/**/*.svh
+
+# C / C++
+!fpga/**/*.c
+!fpga/**/*.cpp
+!fpga/**/*.cc
+!fpga/**/*.h
+!fpga/**/*.hpp
+
+!cpu/**/*.c
+!cpu/**/*.cpp
+!cpu/**/*.cc
+!cpu/**/*.h
+!cpu/**/*.hpp
+
+!gpu/**/*.c
+!gpu/**/*.cpp
+!gpu/**/*.cc
+!gpu/**/*.h
+!gpu/**/*.hpp
+
+# Scripts
+!fpga/**/*.py
+!fpga/**/*.pl
+!fpga/**/*.tcl
+!fpga/**/*.sh
+!fpga/**/*.dc
+
+!cpu/**/*.py
+!cpu/**/*.pl
+!cpu/**/*.tcl
+!cpu/**/*.sh
+!cpu/**/*.dc
+
+!gpu/**/*.py
+!gpu/**/*.pl
+!gpu/**/*.tcl
+!gpu/**/*.sh
+!gpu/**/*.dc
+
+# Makefiles
+!fpga/**/Makefile
+!cpu/**/Makefile
+!gpu/**/Makefile
+
+# README files
+!fpga/**/README
+!fpga/**/README.md
+!cpu/**/README
+!cpu/**/README.md
+!gpu/**/README
+!gpu/**/README.md
+
+# .gitignore files
+!fpga/**/.gitignore
+!cpu/**/.gitignore
+!gpu/**/.gitignore
