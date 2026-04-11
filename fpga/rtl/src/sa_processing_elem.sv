@@ -24,8 +24,8 @@
 * Inputs:
 *   - clk: System clock -- we will try to run this as fast as possible.
 *   - rst_l: Active low synchoronous reset.
-*   - i_valid:   Indicates that the input data is valid.
-*   - i_ready:   Indicates that the input data is ready for compuatation.
+*   - i_valid:   Indicates that the data is valid/ready for computation. Should
+*                be asserted only for one cycle.
 *   - i_rowData: Data from the PE in the previous column. For acceptors, this is
 *                the matrix row data.
 *   - i_colData: Data from the PE in the previous row. For acceptors, this is
@@ -41,13 +41,11 @@ module sa_processing_elem
     #(parameter sa_arch_t SA_TYPE     = SA_STATIONARY,
       parameter int       I_WORD_SIZE = MATRIX_WORD_SIZE,
       parameter int       O_WORD_SIZE = (I_WORD_SIZE * 2))
-    // TODO: Decide if valid-ready handshake is necessary for left/top edges.
     (input  logic                     clk,
 
      // TODO: Synchronous reset for now -- should probably change later.
      input  logic                     rst_l,
      input  logic                     i_valid,
-     input  logic                     i_ready,
      input  logic [I_WORD_SIZE - 1:0] i_rowData,
      input  logic [I_WORD_SIZE - 1:0] i_colData,
      output logic [O_WORD_SIZE - 1:0] o_rowData,
@@ -58,21 +56,18 @@ module sa_processing_elem
     logic [O_WORD_SIZE - 1:0] macOut;
     logic [O_WORD_SIZE - 1:0] accumulatorData;
 
-    logic startComp;
-    assign startComp = (i_valid & i_ready);
-
     // Latch input data.
     register #(.WIDTH(I_WORD_SIZE))
         rowReg(.clk,
                .rst_l,
                .clear(1'b0),
-               .en(startComp),
+               .en(i_valid),
                .regIn(i_rowData),
                .regOut(rowData)),
         colReg(.clk,
                .rst_l,
                .clear(1'b0),
-               .en(startComp),
+               .en(i_valid),
                .regIn(i_colData),
                .regOut(colData));
 
@@ -101,7 +96,6 @@ module sa_processing_elem
 
     // TODO: Add MUX to output colData on final blocks.
     assign o_colData = macOut;
-
 endmodule : sa_processing_elem
 
 `endif // _SA_PROCESSING_ELEM

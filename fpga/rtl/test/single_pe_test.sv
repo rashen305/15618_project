@@ -13,7 +13,7 @@ module single_pe_test();
     localparam int O_WIDTH = 8;
 
     logic                 clk, rst_l;
-    logic                 i_valid, i_ready;
+    logic                 i_valid;
     logic [I_WIDTH - 1:0] i_rowData, i_colData;
     logic [O_WIDTH - 1:0] o_rowData, o_colData;
 
@@ -31,14 +31,16 @@ module single_pe_test();
         // Reset PE initially.
         rst_l <= 1'b0;
         i_valid <= 1'b0;
-        i_ready <= 1'b0;
         @(posedge clk);
 
         rst_l <= 1'b1;
         i_valid <= 1'b1;
-        i_ready <= 1'b1;
         i_rowData <= I_WIDTH'(4);
         i_colData <= I_WIDTH'(2);
+        @(posedge clk);
+        i_valid <= 1'b0;
+        @(posedge clk);
+        assert(o_colData == 8);
         repeat (5) @(posedge clk);
         $finish;
     end
