@@ -16,33 +16,15 @@ module single_pe_test();
     logic                 i_valid;
     logic                 i_acc_clear;
     logic [I_WIDTH - 1:0] i_rowData, i_colData;
-    logic [O_WIDTH - 1:0] o_rowDataInner, o_colDataInner;
-    logic [O_WIDTH - 1:0] o_rowDataEdge, o_colDataEdge;
+    logic [O_WIDTH - 1:0] o_rowData, o_colData, o_accData;
 
-    // Inner PE (should forward MAC data to the next row).
     sa_processing_elem #(
         .I_WORD_SIZE(I_WIDTH),
-        .O_WORD_SIZE(O_WIDTH),
-        .IS_FINAL_PE(0)
+        .O_WORD_SIZE(O_WIDTH)
     )
-        innerPE(
-            .o_rowData(o_rowDataInner),
-            .o_colData(o_colDataInner),
-            .*
-        );
+        processingElem_DUT(.*);
 
-    // Bottom edge PE (should forward column data to the next row).
-    sa_processing_elem #(
-        .I_WORD_SIZE(I_WIDTH),
-        .O_WORD_SIZE(O_WIDTH),
-        .IS_FINAL_PE(1)
-    )
-        edgePE(
-            .o_rowData(o_rowDataEdge),
-            .o_colData(o_colDataEdge),
-            .*
-        );
-
+    // Clocking block.
     initial begin
         clk   = 0;
         rst_l = 1;
@@ -53,64 +35,61 @@ module single_pe_test();
     logic [O_WIDTH - 1:0] golden_mac;
     initial begin
         // Reset PE initially.
-        rst_l <= 1'b0;
+        rst_l <= 1'b1;
         i_valid <= 1'b0;
         i_acc_clear <= 1'b0;
         @(posedge clk);
+        rst_l <= 1'b0;
+        @(posedge clk);
+
+        RESET_ASSERT : begin
+            assert(processingElem_DUT.rowData == '0) else begin
+                $error("Row data should be cleared on reset.\n");
+            end
+            assert(processingElem_DUT.colData == '0) else begin
+                $error("Column data should be cleared on reset.\n");
+            end
+        end
 
         rst_l <= 1'b1;
-        i_valid <= 1'b1;
-        i_rowData <= I_WIDTH'(4);
-        i_colData <= I_WIDTH'(2);
+        i_rowData <= I_WIDTH'(888);
+        i_colData <= I_WIDTH'(999);
         @(posedge clk);
         i_valid <= 1'b0;
-        for (int i = 0; i < 20; i++) begin
-            @(posedge clk);
-
-            // Row data should always be the same (unless new input is passed).
-            O_ROW_DATA_INNER_ASSERT : assert(o_rowDataInner == 4) else begin
-                $display("Expected o_rowDataInner = 4, got %d instead.\n",
-                         o_rowDataInner);
-            end
-
-            O_ROW_DATA_EDGE_ASSERT : assert(o_rowDataEdge == 4) else begin
-                $display("Expected o_rowDataEdge = 4, got %d instead.\n",
-                         o_rowDataEdge);
-            end
-
-            O_COL_DATA_INNER_ASSERT : assert(o_colDataInner == 8 * (i + 1)) else begin
-                $display("Expected o_colDataInner = %d, got %d instead.\n",
-                         8 * (i + 1), o_colDataInner);
-            end
-
-            O_COL_DATA_EDGE_ASSERT : assert(o_colDataEdge == 2) else begin
-                $display("Expected o_colDataEdge = 2, got %d instead.\n",
-                         o_colDataEdge);
-            end
-        end
-
-        i_valid <= 1'b0;
-        i_rowData <= I_WIDTH'(167);
-        i_colData <= I_WIDTH'(789);
-        @(posedge clk);
 
         NON_VALID_LATCH_ASSERT : begin
-            assert(innerPE.rowData != i_rowData) else begin
-                $display("Should not have latched data when i_valid = 0.\n");
+            assert(processingElem_DUT.rowData != i_rowData) else begin
+                $error("Should not have latched data when i_valid = 0.\n");
             end
-            assert(innerPE.colData != i_colData) else begin
-                $display("Should not have latched data when i_valid = 0.\n");
+            assert(processingElem_DUT.colData != i_colData) else begin
+                $error("Should not have latched data when i_valid = 0.\n");
             end
         end
 
-        i_valid <= 1'b1;
-        i_acc_clear <= 1'b1;
         @(posedge clk);
+        i_valid <= 1'b1;
+
+        VALID_MUL_ASSERT : begin
+            assert(processingElem_DUT.rowData == i_rowData) else begin
+                $error("Should latch data on i_valid. Expected rowData = %d, but got %d.\n",
+                         i_rowData, processingElem_DUT.rowData);
+            end
+            assert(processingElem_DUT.colData == i_colData) else begin
+                $error("Should latch data on i_valid. Expected colData = %d, but got %d.\n",
+                         i_colData, processingElem_DUT.colData);
+            end
+            assert(o_accData == (888 * 999)) else begin
+                $error("Accumulator should be enabled on i_valid. Expected o_accData = %d, but got %d.\n",
+                         888 * 999, o_accData);
+            end
+        end
+
+        i_acc_clear <= 1'b0;
         @(posedge clk);
 
         CLEAR_ACC_ASSERT : begin
-            assert (innerPE.accumulatorData == 0) else begin
-                $display("Did not clear accumulator on i_acc_clear.\n");
+            assert(o_accData == '0) else begin
+                $error("Did not clear accumulator on i_acc_clear.\n");
             end
         end
 
@@ -129,10 +108,21 @@ module single_pe_test();
             @(posedge clk);
             golden_mac <= (golden_mac + (i * (i + 1)));
 
-            RAND_COL_DATA_INNER_ASSERT : begin
-                assert (o_colDataInner == golden_mac) else begin
-                    $display("Expected o_colDataInner = %d, got %d instead.\n",
-                             golden_mac, o_colDataInner);
+            RAND_COL_DATA_ASSERT : begin
+                assert(o_accData == golden_mac) else begin
+                    $error("Expected o_colData = %d, got %d instead.\n",
+                             golden_mac, o_colData);
+                end
+            end
+
+            PROP_ROW_COL_ASSERT : begin
+                assert(o_rowData == i_rowData) else begin
+                    $error("Should propagate input row data to output. Expected %d, but got %d.\n",
+                             i_rowData, o_rowData);
+                end
+                assert(o_colData == i_colData) else begin
+                    $error("Should propagate input column data to output. Expected %d, but got %d.\n",
+                             i_colData, o_colData);
                 end
             end
         end

@@ -34,16 +34,15 @@
 *                  the matrix column data.
 *
 * Outputs:
-*   - o_rowData:   Depending on the architecture, is the data passed to the PE
-*                  in the next column.
+*   - o_rowData:   Input row data to be passed to the PE in the next column.
 *
-*   - o_colData:   Depending on the architecture, is the data passed to the PE
-*                  in the next row.
+*   - o_colData:   Input column data to be passed to the PE in the next row.
+*
+*   - o_accData:   Partial sum that the PE currently holds.
 */
 module sa_processing_elem
     #(parameter int I_WORD_SIZE = MATRIX_WORD_SIZE,
-      parameter int O_WORD_SIZE = (I_WORD_SIZE * 2),
-      parameter int IS_FINAL_PE = 0)
+      parameter int O_WORD_SIZE = (I_WORD_SIZE * 2))
     (input  logic                     clk,
      // TODO: Synchronous reset for now -- should probably change later.
      input  logic                     rst_l,
@@ -52,7 +51,8 @@ module sa_processing_elem
      input  logic [I_WORD_SIZE - 1:0] i_rowData,
      input  logic [I_WORD_SIZE - 1:0] i_colData,
      output logic [O_WORD_SIZE - 1:0] o_rowData,
-     output logic [O_WORD_SIZE - 1:0] o_colData);
+     output logic [O_WORD_SIZE - 1:0] o_colData,
+     output logic [O_WORD_SIZE - 1:0] o_accData);
 
     logic [I_WORD_SIZE - 1:0] rowData, colData;
     logic [O_WORD_SIZE - 1:0] multOut;
@@ -79,7 +79,7 @@ module sa_processing_elem
         accumulatorReg(.clk,
                .rst_l,
                .clear(i_acc_clear),
-               .en(1'b1),
+               .en(i_valid),
                .regIn(macOut),
                .regOut(accumulatorData));
 
@@ -98,15 +98,7 @@ module sa_processing_elem
                  .adderOut(macOut));
 
     assign o_rowData = rowData;
-
-    always_comb begin
-        if (IS_FINAL_PE) begin
-            o_colData = (i_acc_clear) ? '0 : i_colData;
-        end
-
-        else begin
-            o_colData = (i_acc_clear) ? '0 : macOut;
-        end
-    end
+    assign o_colData = colData;
+    assign o_accData = accumulatorData;
 endmodule : sa_processing_elem
 `endif // _SA_PROCESSING_ELEM
