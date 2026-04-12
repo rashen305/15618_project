@@ -33,7 +33,7 @@ module register
 endmodule : register
 
 /*
-* Traditionaly 2-to-1 multiplexer.
+* Traditional 2-to-1 multiplexer.
 */
 module mux2to1
     #(parameter int WIDTH = SA_WORD_SIZE)
@@ -58,16 +58,15 @@ module adder
 endmodule : adder
 
 /*
-* Combinational multiplier (for now).
+* Combinational multiplier. TODO: Pipeline later for better throughput.
 */
 module multiplier
     #(parameter int I_WIDTH = MATRIX_WORD_SIZE,
-      parameter int O_WIDTH = (2 * I_WIDTH))
+      parameter int O_WIDTH = 2 * I_WIDTH)
     (input  logic [I_WIDTH - 1:0] multIn1,
      input  logic [I_WIDTH - 1:0] multIn2,
      output logic [O_WIDTH - 1:0] multOut);
 
-    // TODO: Decide if we want to use our own multiplier or DSP slices.
     assign multOut = (multIn1 * multIn2);
 endmodule : multiplier
 `endif // _LIB_SV
