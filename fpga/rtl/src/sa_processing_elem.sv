@@ -1,6 +1,6 @@
 /*
 * sa_processing_elem.sv: Contains the implementation of a single processing
-* element for the systolic array. Currently, we only implement the stationary
+* element for the systolic array. Currently, we only implement the non-stationary
 * type.
 *
 * Author: Albert Luo (albertlu)
@@ -21,17 +21,22 @@
 *
 * Inputs:
 *   - clk:         System clock -- we will try to run this as fast as possible.
+*
 *   - rst_l:       Active low synchoronous reset.
+*
 *   - i_valid:     Indicates that the data is valid/ready for computation. Should
 *                  be asserted only for one cycle.
+*
 *   - i_rowData:   Data from the PE in the previous column. For acceptors, this is
 *                  the matrix row data.
+*
 *   - i_colData:   Data from the PE in the previous row. For acceptors, this is
 *                  the matrix column data.
 *
 * Outputs:
 *   - o_rowData:   Depending on the architecture, is the data passed to the PE
 *                  in the next column.
+*
 *   - o_colData:   Depending on the architecture, is the data passed to the PE
 *                  in the next row.
 */
@@ -77,6 +82,8 @@ module sa_processing_elem
                .en(1'b1),
                .regIn(macOut),
                .regOut(accumulatorData));
+
+    // TODO: Pipeline the MAC operation.
 
     // Multiply inputs.
     multiplier #(.I_WIDTH(I_WORD_SIZE))
