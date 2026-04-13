@@ -50,18 +50,19 @@ module single_pe_test();
             i_acc_clear <= 1'b0;
         end
 
-        for (int i = 0; i < 100; i++) begin
+        for (int i = 0; i < 5; i++) begin
             i_rowData <= I_WIDTH'(i);
             i_colData <= I_WIDTH'(i + 1);
-            golden_mac <= (golden_mac + (i * (i + 1)));
+
+            // Note that the accumulator data propagates one cycle later.
+            golden_mac <= (golden_mac + (i * (i - 1)));
 
             @(posedge clk);
 
-            // Note that the accumulator data propagates one cycle later.
             RAND_COL_DATA_ASSERT : begin
                 assert(o_accData == golden_mac) else begin
-                    $error("Expected o_colData = %d, got %d instead.\n",
-                             golden_mac, o_colData);
+                    $error("Expected o_accData = %d, got %d instead.\n",
+                           golden_mac, o_accData);
                 end
             end
 

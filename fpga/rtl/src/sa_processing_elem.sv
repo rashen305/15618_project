@@ -99,6 +99,6 @@ module sa_processing_elem
 
     assign o_rowData = rowData;
     assign o_colData = colData;
-    assign o_accData = macOut;
+    assign o_accData = accumulatorData;
 endmodule : sa_processing_elem
 `endif // _SA_PROCESSING_ELEM
