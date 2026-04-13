@@ -1,19 +1,16 @@
 # Begin_DVE_Session_Save_Info
 # DVE full session
-# Saved on Sun Apr 12 18:06:09 2026
+# Saved on Sun Apr 12 20:50:25 2026
 # Designs open: 1
 #   Sim: single_pe_test
 # Toplevel windows open: 2
 # 	TopLevel.1
 # 	TopLevel.2
-#   Source.1: single_pe_test.edgePE
-#   Wave.1: 53 signals
-#   Group count = 5
-#   Group edgePE signal count = 17
-#   Group innerPE signal count = 17
-#   Group Group1 signal count = 19
-#   Group Group2 signal count = 19
-#   Group Group3 signal count = 11
+#   Source.1: mux2to1
+#   Wave.1: 28 signals
+#   Group count = 2
+#   Group Group1 signal count = 10
+#   Group processingElem_DUT signal count = 18
 # End_DVE_Session_Save_Info
 
 # DVE version: T-2022.06_Full64
@@ -72,7 +69,7 @@ if {![gui_exist_window -window TopLevel.1]} {
 } else { 
     set TopLevel.1 TopLevel.1
 }
-gui_show_window -window ${TopLevel.1} -show_state normal -rect {{143 202} {1846 1078}}
+gui_show_window -window ${TopLevel.1} -show_state normal -rect {{143 204} {1845 1079}}
 
 # ToolBar settings
 gui_set_toolbar_attributes -toolbar {TimeOperations} -dock_state top
@@ -119,23 +116,23 @@ gui_show_toolbar -toolbar {Testbench}
 # End ToolBar settings
 
 # Docked window settings
-set HSPane.1 [gui_create_window -type HSPane -parent ${TopLevel.1} -dock_state left -dock_on_new_line true -dock_extent 189]
+set HSPane.1 [gui_create_window -type HSPane -parent ${TopLevel.1} -dock_state left -dock_on_new_line true -dock_extent 188]
 catch { set Hier.1 [gui_share_window -id ${HSPane.1} -type Hier] }
-gui_set_window_pref_key -window ${HSPane.1} -key dock_width -value_type integer -value 189
+gui_set_window_pref_key -window ${HSPane.1} -key dock_width -value_type integer -value 188
 gui_set_window_pref_key -window ${HSPane.1} -key dock_height -value_type integer -value -1
 gui_set_window_pref_key -window ${HSPane.1} -key dock_offset -value_type integer -value 0
-gui_update_layout -id ${HSPane.1} {{left 0} {top 0} {width 188} {height 604} {dock_state left} {dock_on_new_line true} {child_hier_colhier 179} {child_hier_coltype 107} {child_hier_colpd 0} {child_hier_col1 0} {child_hier_col2 1} {child_hier_col3 -1}}
-set DLPane.1 [gui_create_window -type DLPane -parent ${TopLevel.1} -dock_state left -dock_on_new_line true -dock_extent 175]
+gui_update_layout -id ${HSPane.1} {{left 0} {top 0} {width 187} {height 604} {dock_state left} {dock_on_new_line true} {child_hier_colhier 179} {child_hier_coltype 107} {child_hier_colpd 0} {child_hier_col1 0} {child_hier_col2 1} {child_hier_col3 -1}}
+set DLPane.1 [gui_create_window -type DLPane -parent ${TopLevel.1} -dock_state left -dock_on_new_line true -dock_extent 174]
 catch { set Data.1 [gui_share_window -id ${DLPane.1} -type Data] }
-gui_set_window_pref_key -window ${DLPane.1} -key dock_width -value_type integer -value 175
+gui_set_window_pref_key -window ${DLPane.1} -key dock_width -value_type integer -value 174
 gui_set_window_pref_key -window ${DLPane.1} -key dock_height -value_type integer -value 604
 gui_set_window_pref_key -window ${DLPane.1} -key dock_offset -value_type integer -value 0
-gui_update_layout -id ${DLPane.1} {{left 0} {top 0} {width 174} {height 604} {dock_state left} {dock_on_new_line true} {child_data_colvariable 171} {child_data_colvalue 20} {child_data_coltype 72} {child_data_col1 0} {child_data_col2 1} {child_data_col3 2}}
-set Console.1 [gui_create_window -type Console -parent ${TopLevel.1} -dock_state bottom -dock_on_new_line true -dock_extent 174]
-gui_set_window_pref_key -window ${Console.1} -key dock_width -value_type integer -value 1705
-gui_set_window_pref_key -window ${Console.1} -key dock_height -value_type integer -value 174
+gui_update_layout -id ${DLPane.1} {{left 0} {top 0} {width 173} {height 604} {dock_state left} {dock_on_new_line true} {child_data_colvariable 171} {child_data_colvalue 20} {child_data_coltype 72} {child_data_col1 0} {child_data_col2 1} {child_data_col3 2}}
+set Console.1 [gui_create_window -type Console -parent ${TopLevel.1} -dock_state bottom -dock_on_new_line true -dock_extent 173]
+gui_set_window_pref_key -window ${Console.1} -key dock_width -value_type integer -value 1703
+gui_set_window_pref_key -window ${Console.1} -key dock_height -value_type integer -value 173
 gui_set_window_pref_key -window ${Console.1} -key dock_offset -value_type integer -value 0
-gui_update_layout -id ${Console.1} {{left 0} {top 0} {width 1703} {height 173} {dock_state bottom} {dock_on_new_line true}}
+gui_update_layout -id ${Console.1} {{left 0} {top 0} {width 1702} {height 172} {dock_state bottom} {dock_on_new_line true}}
 #### Start - Readjusting docked view's offset / size
 set dockAreaList { top left right bottom }
 foreach dockArea $dockAreaList {
@@ -172,7 +169,7 @@ if {![gui_exist_window -window TopLevel.2]} {
 } else { 
     set TopLevel.2 TopLevel.2
 }
-gui_show_window -window ${TopLevel.2} -show_state normal -rect {{211 152} {1919 1033}}
+gui_show_window -window ${TopLevel.2} -show_state normal -rect {{186 148} {1893 1028}}
 
 # ToolBar settings
 gui_set_toolbar_attributes -toolbar {TimeOperations} -dock_state top
@@ -224,7 +221,7 @@ gui_sync_global -id ${TopLevel.2} -option true
 # MDI window settings
 set Wave.1 [gui_create_window -type {Wave}  -parent ${TopLevel.2}]
 gui_show_window -window ${Wave.1} -show_state maximized
-gui_update_layout -id ${Wave.1} {{show_state maximized} {dock_state undocked} {dock_on_new_line false} {child_wave_left 495} {child_wave_right 1208} {child_wave_colname 245} {child_wave_colvalue 246} {child_wave_col1 0} {child_wave_col2 1}}
+gui_update_layout -id ${Wave.1} {{show_state maximized} {dock_state undocked} {dock_on_new_line false} {child_wave_left 495} {child_wave_right 1207} {child_wave_colname 245} {child_wave_colvalue 246} {child_wave_col1 0} {child_wave_col2 1}}
 
 # End MDI window settings
 
@@ -245,11 +242,11 @@ gui_update_statusbar_target_frame ${TopLevel.2}
 # DVE Open design session: 
 
 if { [llength [lindex [gui_get_db -design Sim] 0]] == 0 } {
-gui_set_env SIMSETUP::SIMARGS {{ -ucligui}}
+gui_set_env SIMSETUP::SIMARGS {{-ucligui }}
 gui_set_env SIMSETUP::SIMEXE {single_pe_test}
 gui_set_env SIMSETUP::ALLOW_POLL {0}
 if { ![gui_is_db_opened -db {single_pe_test}] } {
-gui_sim_run Ucli -exe single_pe_test -args { -ucligui} -dir ../rtl -nosource
+gui_sim_run Ucli -exe single_pe_test -args {-ucligui } -dir ../rtl -nosource
 }
 }
 if { ![gui_sim_state -check active] } {error "Simulator did not start correctly" error}
@@ -271,51 +268,32 @@ gui_set_time_units 1ns
 # Global: Signal Compare
 
 # Global: Signal Groups
-gui_load_child_values {single_pe_test.edgePE}
-gui_load_child_values {single_pe_test.innerPE}
+gui_load_child_values {single_pe_test.processingElem_DUT}
 
 
-set _session_group_25 edgePE
-gui_sg_create "$_session_group_25"
-set edgePE "$_session_group_25"
+set _session_group_68 Group1
+gui_sg_create "$_session_group_68"
+set Group1 "$_session_group_68"
 
-gui_sg_addsignal -group "$_session_group_25" { {single_pe_test.edgePE.$unit} single_pe_test.edgePE.I_WORD_SIZE single_pe_test.edgePE.O_WORD_SIZE single_pe_test.edgePE.IS_FINAL_PE single_pe_test.edgePE.clk single_pe_test.edgePE.rst_l single_pe_test.edgePE.i_valid single_pe_test.edgePE.i_acc_clear single_pe_test.edgePE.i_rowData single_pe_test.edgePE.i_colData single_pe_test.edgePE.o_rowData single_pe_test.edgePE.o_colData single_pe_test.edgePE.colData single_pe_test.edgePE.rowData single_pe_test.edgePE.multOut single_pe_test.edgePE.macOut single_pe_test.edgePE.accumulatorData }
-gui_set_radix -radix {decimal} -signals {Sim:single_pe_test.edgePE.I_WORD_SIZE}
-gui_set_radix -radix {twosComplement} -signals {Sim:single_pe_test.edgePE.I_WORD_SIZE}
-gui_set_radix -radix {decimal} -signals {Sim:single_pe_test.edgePE.O_WORD_SIZE}
-gui_set_radix -radix {twosComplement} -signals {Sim:single_pe_test.edgePE.O_WORD_SIZE}
-gui_set_radix -radix {decimal} -signals {Sim:single_pe_test.edgePE.IS_FINAL_PE}
-gui_set_radix -radix {twosComplement} -signals {Sim:single_pe_test.edgePE.IS_FINAL_PE}
+gui_sg_addsignal -group "$_session_group_68" { single_pe_test.clk single_pe_test.rst_l single_pe_test.i_valid single_pe_test.i_acc_clear single_pe_test.i_colData single_pe_test.i_rowData single_pe_test.o_accData single_pe_test.o_colData single_pe_test.o_rowData single_pe_test.golden_mac }
+gui_set_radix -radix {decimal} -signals {Sim:single_pe_test.golden_mac}
+gui_set_radix -radix {unsigned} -signals {Sim:single_pe_test.golden_mac}
 
-set _session_group_26 innerPE
-gui_sg_create "$_session_group_26"
-set innerPE "$_session_group_26"
+set _session_group_69 processingElem_DUT
+gui_sg_create "$_session_group_69"
+set processingElem_DUT "$_session_group_69"
 
-gui_sg_addsignal -group "$_session_group_26" { {single_pe_test.innerPE.$unit} single_pe_test.innerPE.I_WORD_SIZE single_pe_test.innerPE.O_WORD_SIZE single_pe_test.innerPE.IS_FINAL_PE single_pe_test.innerPE.clk single_pe_test.innerPE.rst_l single_pe_test.innerPE.i_valid single_pe_test.innerPE.i_acc_clear single_pe_test.innerPE.i_rowData single_pe_test.innerPE.i_colData single_pe_test.innerPE.o_rowData single_pe_test.innerPE.o_colData single_pe_test.innerPE.colData single_pe_test.innerPE.rowData single_pe_test.innerPE.multOut single_pe_test.innerPE.macOut single_pe_test.innerPE.accumulatorData }
-gui_set_radix -radix {decimal} -signals {Sim:single_pe_test.innerPE.I_WORD_SIZE}
-gui_set_radix -radix {twosComplement} -signals {Sim:single_pe_test.innerPE.I_WORD_SIZE}
-gui_set_radix -radix {decimal} -signals {Sim:single_pe_test.innerPE.O_WORD_SIZE}
-gui_set_radix -radix {twosComplement} -signals {Sim:single_pe_test.innerPE.O_WORD_SIZE}
-gui_set_radix -radix {decimal} -signals {Sim:single_pe_test.innerPE.IS_FINAL_PE}
-gui_set_radix -radix {twosComplement} -signals {Sim:single_pe_test.innerPE.IS_FINAL_PE}
-
-set _session_group_27 Group1
-gui_sg_create "$_session_group_27"
-set Group1 "$_session_group_27"
-
-gui_sg_addsignal -group "$_session_group_27" { single_pe_test.clk single_pe_test.rst_l single_pe_test.i_valid single_pe_test.i_acc_clear single_pe_test.i_colData single_pe_test.i_rowData single_pe_test.o_colDataInner single_pe_test.o_rowDataInner single_pe_test.o_colDataEdge single_pe_test.o_rowDataEdge single_pe_test.golden_mac {single_pe_test.unnamed$$_0.O_ROW_DATA_INNER_ASSERT} {single_pe_test.unnamed$$_0.O_ROW_DATA_EDGE_ASSERT} {single_pe_test.unnamed$$_0.O_COL_DATA_INNER_ASSERT} {single_pe_test.unnamed$$_0.O_COL_DATA_EDGE_ASSERT} {single_pe_test.NON_VALID_LATCH_ASSERT.unnamed$$_0} {single_pe_test.NON_VALID_LATCH_ASSERT.unnamed$$_1} {single_pe_test.CLEAR_ACC_ASSERT.unnamed$$_0} {single_pe_test.unnamed$$_1.RAND_COL_DATA_INNER_ASSERT.unnamed$$_0} }
-
-set _session_group_28 Group2
-gui_sg_create "$_session_group_28"
-set Group2 "$_session_group_28"
-
-gui_sg_addsignal -group "$_session_group_28" { single_pe_test.clk single_pe_test.rst_l single_pe_test.i_valid single_pe_test.i_acc_clear single_pe_test.i_colData single_pe_test.i_rowData single_pe_test.o_colDataInner single_pe_test.o_rowDataInner single_pe_test.o_colDataEdge single_pe_test.o_rowDataEdge single_pe_test.golden_mac {single_pe_test.unnamed$$_0.O_ROW_DATA_INNER_ASSERT} {single_pe_test.unnamed$$_0.O_ROW_DATA_EDGE_ASSERT} {single_pe_test.unnamed$$_0.O_COL_DATA_INNER_ASSERT} {single_pe_test.unnamed$$_0.O_COL_DATA_EDGE_ASSERT} {single_pe_test.NON_VALID_LATCH_ASSERT.unnamed$$_0} {single_pe_test.NON_VALID_LATCH_ASSERT.unnamed$$_1} {single_pe_test.CLEAR_ACC_ASSERT.unnamed$$_0} {single_pe_test.unnamed$$_1.RAND_COL_DATA_INNER_ASSERT.unnamed$$_0} }
-
-set _session_group_29 Group3
-gui_sg_create "$_session_group_29"
-set Group3 "$_session_group_29"
-
-gui_sg_addsignal -group "$_session_group_29" { single_pe_test.innerPE.i_valid single_pe_test.innerPE.i_acc_clear single_pe_test.innerPE.i_rowData single_pe_test.innerPE.i_colData single_pe_test.innerPE.o_rowData single_pe_test.innerPE.o_colData single_pe_test.innerPE.colData single_pe_test.innerPE.rowData single_pe_test.innerPE.multOut single_pe_test.innerPE.macOut single_pe_test.innerPE.accumulatorData }
+gui_sg_addsignal -group "$_session_group_69" { single_pe_test.processingElem_DUT.I_WORD_SIZE single_pe_test.processingElem_DUT.O_WORD_SIZE single_pe_test.processingElem_DUT.clk single_pe_test.processingElem_DUT.rst_l single_pe_test.processingElem_DUT.i_valid single_pe_test.processingElem_DUT.i_acc_clear single_pe_test.processingElem_DUT.i_rowData single_pe_test.processingElem_DUT.i_colData single_pe_test.processingElem_DUT.o_rowData single_pe_test.processingElem_DUT.o_colData single_pe_test.processingElem_DUT.o_accData single_pe_test.processingElem_DUT.colData single_pe_test.processingElem_DUT.rowData single_pe_test.processingElem_DUT.multOut single_pe_test.processingElem_DUT.macOut single_pe_test.processingElem_DUT.accumulatorData {single_pe_test.processingElem_DUT.$unit} {single_pe_test.RESET_CLEAR_ASSERT.unnamed$$_1} }
+gui_set_radix -radix {decimal} -signals {Sim:single_pe_test.processingElem_DUT.I_WORD_SIZE}
+gui_set_radix -radix {twosComplement} -signals {Sim:single_pe_test.processingElem_DUT.I_WORD_SIZE}
+gui_set_radix -radix {decimal} -signals {Sim:single_pe_test.processingElem_DUT.O_WORD_SIZE}
+gui_set_radix -radix {twosComplement} -signals {Sim:single_pe_test.processingElem_DUT.O_WORD_SIZE}
+gui_set_radix -radix {decimal} -signals {Sim:single_pe_test.processingElem_DUT.multOut}
+gui_set_radix -radix {unsigned} -signals {Sim:single_pe_test.processingElem_DUT.multOut}
+gui_set_radix -radix {decimal} -signals {Sim:single_pe_test.processingElem_DUT.macOut}
+gui_set_radix -radix {unsigned} -signals {Sim:single_pe_test.processingElem_DUT.macOut}
+gui_set_radix -radix {decimal} -signals {Sim:single_pe_test.processingElem_DUT.accumulatorData}
+gui_set_radix -radix {unsigned} -signals {Sim:single_pe_test.processingElem_DUT.accumulatorData}
 
 # Global: Highlighting
 
@@ -325,7 +303,7 @@ gui_change_stack_mode -mode list
 # Post database loading setting...
 
 # Restore C1 time
-gui_set_time -C1_only 550
+gui_set_time -C1_only 170
 
 
 
@@ -350,17 +328,12 @@ gui_list_set_filter -id ${Hier.1} -list { {Package 1} {All 0} {Process 1} {VirtP
 gui_list_set_filter -id ${Hier.1} -text {*}
 gui_hier_list_init -id ${Hier.1}
 gui_change_design -id ${Hier.1} -design Sim
-catch {gui_list_expand -id ${Hier.1} single_pe_test}
-catch {gui_list_select -id ${Hier.1} {single_pe_test.innerPE}}
 gui_view_scroll -id ${Hier.1} -vertical -set 0
 gui_view_scroll -id ${Hier.1} -horizontal -set 0
 
 # Data 'Data.1'
 gui_list_set_filter -id ${Data.1} -list { {Buffer 1} {Input 1} {Others 1} {Linkage 1} {Output 1} {LowPower 1} {Parameter 1} {All 1} {Aggregate 1} {LibBaseMember 1} {Event 1} {Assertion 1} {Constant 1} {Interface 1} {BaseMembers 1} {Signal 1} {$unit 1} {Inout 1} {Variable 1} }
 gui_list_set_filter -id ${Data.1} -text {*}
-gui_list_show_data -id ${Data.1} {single_pe_test.innerPE}
-gui_show_window -window ${Data.1}
-catch { gui_list_select -id ${Data.1} {single_pe_test.innerPE.i_valid single_pe_test.innerPE.i_acc_clear single_pe_test.innerPE.i_rowData single_pe_test.innerPE.i_colData single_pe_test.innerPE.o_rowData single_pe_test.innerPE.o_colData single_pe_test.innerPE.colData single_pe_test.innerPE.rowData single_pe_test.innerPE.multOut single_pe_test.innerPE.macOut single_pe_test.innerPE.accumulatorData }}
 gui_view_scroll -id ${Data.1} -vertical -set 0
 gui_view_scroll -id ${Data.1} -horizontal -set 0
 gui_view_scroll -id ${Hier.1} -vertical -set 0
@@ -369,8 +342,8 @@ gui_view_scroll -id ${Hier.1} -horizontal -set 0
 # Source 'Source.1'
 gui_src_value_annotate -id ${Source.1} -switch false
 gui_set_env TOGGLE::VALUEANNOTATE 0
-gui_open_source -id ${Source.1}  -replace -active single_pe_test.edgePE src/sa_processing_elem.sv
-gui_view_scroll -id ${Source.1} -vertical -set 555
+gui_open_source -id ${Source.1}  -replace -active mux2to1 src/lib.sv
+gui_view_scroll -id ${Source.1} -vertical -set 60
 gui_src_set_reusable -id ${Source.1}
 
 # View 'Wave.1'
@@ -382,11 +355,10 @@ gui_list_set_height -id Wave -height 25
 set origGroupCreationState [gui_list_create_group_when_add -wave]
 gui_list_create_group_when_add -wave -disable
 gui_marker_set_ref -id ${Wave.1}  C1
-gui_wv_zoom_timerange -id ${Wave.1} 0 690
-gui_list_add_group -id ${Wave.1} -after {New Group} {edgePE}
-gui_list_add_group -id ${Wave.1} -after {New Group} {innerPE}
-gui_list_add_group -id ${Wave.1} -after {New Group} {Group2}
-gui_list_select -id ${Wave.1} {single_pe_test.i_colData }
+gui_wv_zoom_timerange -id ${Wave.1} 0 270
+gui_list_add_group -id ${Wave.1} -after {New Group} {processingElem_DUT}
+gui_list_add_group -id ${Wave.1} -after {New Group} {Group1}
+gui_list_select -id ${Wave.1} {single_pe_test.processingElem_DUT.multOut }
 gui_seek_criteria -id ${Wave.1} {Any Edge}
 
 
@@ -402,17 +374,17 @@ if { $groupExD } {
 }
 gui_list_set_filter -id ${Wave.1} -list { {Buffer 1} {Input 1} {Others 1} {Linkage 1} {Output 1} {Parameter 1} {All 1} {Aggregate 1} {LibBaseMember 1} {Event 1} {Assertion 1} {Constant 1} {Interface 1} {BaseMembers 1} {Signal 1} {$unit 1} {Inout 1} {Variable 1} }
 gui_list_set_filter -id ${Wave.1} -text {*}
-gui_list_set_insertion_bar  -id ${Wave.1} -group Group2  -item {single_pe_test.unnamed$$_1.RAND_COL_DATA_INNER_ASSERT.unnamed$$_0} -position below
+gui_list_set_insertion_bar  -id ${Wave.1} -group processingElem_DUT  -item {single_pe_test.RESET_CLEAR_ASSERT.unnamed$$_1} -position below
 
-gui_marker_move -id ${Wave.1} {C1} 550
-gui_view_scroll -id ${Wave.1} -vertical -set 0
+gui_marker_move -id ${Wave.1} {C1} 170
+gui_view_scroll -id ${Wave.1} -vertical -set 103
 gui_show_grid -id ${Wave.1} -enable false
 # Restore toplevel window zorder
 # The toplevel window could be closed if it has no view/pane
 if {[gui_exist_window -window ${TopLevel.1}]} {
 	gui_set_active_window -window ${TopLevel.1}
 	gui_set_active_window -window ${Source.1}
-	gui_set_active_window -window ${DLPane.1}
+	gui_set_active_window -window ${HSPane.1}
 }
 if {[gui_exist_window -window ${TopLevel.2}]} {
 	gui_set_active_window -window ${TopLevel.2}
