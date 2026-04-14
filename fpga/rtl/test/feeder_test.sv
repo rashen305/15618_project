@@ -17,19 +17,19 @@ module feeder_test();
     localparam int K_DIM       = 3;
     localparam int NUM_COLS    = 2;
 
-     logic clk;
-     logic rst_l;
-     logic [NUM_ROWS - 1:0]    i_rowsValid;
-     logic [NUM_COLS - 1:0]    i_colsValid;
-     logic [I_WORD_SIZE - 1:0] i_cellData [NUM_ROWS + NUM_COLS];
-     logic [O_WORD_SIZE - 1:0] o_cellData [NUM_ROWS][NUM_COLS];
-     logic                     o_compDone;
-     logic [O_WORD_SIZE - 1:0] o_accData;
+    logic clk;
+    logic rst_l;
+    logic [NUM_ROWS - 1:0]    i_rowsValid;
+    logic [NUM_COLS - 1:0]    i_colsValid;
+    logic [I_WORD_SIZE - 1:0] i_cellData [NUM_ROWS + NUM_COLS];
+    logic [O_WORD_SIZE - 1:0] o_cellData [NUM_ROWS][NUM_COLS];
+    logic                     o_compDone;
+    logic [O_WORD_SIZE - 1:0] o_accData;
 
-     logic [I_WORD_SIZE - 1:0] i_matrixA [NUM_ROWS][K_DIM];
-     logic [I_WORD_SIZE - 1:0] i_matrixB [K_DIM][NUM_COLS];
+    logic [I_WORD_SIZE - 1:0] i_matrixA [NUM_ROWS][K_DIM];
+    logic [I_WORD_SIZE - 1:0] i_matrixB [K_DIM][NUM_COLS];
 
-     logic                     feeder_start, feeder_busy, feeder_done;
+    logic                     feeder_start, feeder_busy, feeder_done;
 
     sa_wavefront_feeder #(
         .I_WORD_SIZE(I_WORD_SIZE),
