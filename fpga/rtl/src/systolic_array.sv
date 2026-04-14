@@ -51,8 +51,12 @@ module ns_systolic_array
      input  logic [NUM_ROWS - 1:0]    i_rowsValid,
      input  logic [NUM_COLS - 1:0]    i_colsValid,
      input  logic [I_WORD_SIZE - 1:0] i_cellData [NUM_ROWS + NUM_COLS],
+     input  logic                     i_feederDone,
      output logic [O_WORD_SIZE - 1:0] o_cellData [NUM_ROWS][NUM_COLS],
      output logic                     o_compDone);
+
+    localparam int DRAIN = (NUM_ROWS - 1) + (NUM_COLS - 1);
+    logic [DRAIN:0] done_shift;
 
     // Inter-PE wiring signals.
     logic [I_WORD_SIZE - 1:0] rowData[NUM_ROWS][NUM_COLS];
@@ -65,6 +69,16 @@ module ns_systolic_array
 
     // Per-PE clear signal.
     logic                     accClear[NUM_ROWS][NUM_COLS];
+
+    always_ff @(posedge clk, negedge rst_l) begin
+        if (~rst_l) begin
+            done_shift <= 1'b0;
+        end
+
+        else begin
+            done_shift <= {done_shift[DRAIN - 1:0], i_feederDone};
+        end
+    end
 
     genvar r, c;
     generate
@@ -121,19 +135,6 @@ module ns_systolic_array
         end
     endgenerate
 
-    logic finalPE_done;
-    assign finalPE_done = (rowValid[NUM_ROWS - 1][NUM_COLS - 1] &
-                           colValid[NUM_ROWS - 1][NUM_COLS - 1]);
-
-    always_ff @(posedge clk) begin
-        if (~rst_l) begin
-            o_compDone <= 1'b0;
-        end
-
-        else begin
-            o_compDone <= finalPE_done;
-        end
-    end
-
+    assign o_compDone = done_shift[DRAIN];
 endmodule : ns_systolic_array
 `endif // _SYSTOLIC_ARRAY

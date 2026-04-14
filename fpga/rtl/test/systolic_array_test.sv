@@ -17,6 +17,7 @@ module systolic_array_test();
 
      logic clk;
      logic rst_l;
+     logic i_feederDone;
      logic [NUM_ROWS - 1:0]    i_rowsValid;
      logic [NUM_COLS - 1:0]    i_colsValid;
      logic [I_WORD_SIZE - 1:0] i_cellData [NUM_ROWS + NUM_COLS];
@@ -92,6 +93,8 @@ module systolic_array_test();
             8'd3
         );
 
+        i_feederDone <= 1'b1;
+
         driveCycle(
             2'b10,
             2'b10,
@@ -103,15 +106,6 @@ module systolic_array_test();
 
         @(posedge clk);
 
-        driveCycle(
-            2'b00,
-            2'b00,
-            8'd0,
-            8'd0,
-            8'd0,
-            8'd0
-        );
-
         wait (o_compDone) begin
             @(posedge clk);
             FINAL_RESULT_ASSERT : begin
@@ -120,7 +114,6 @@ module systolic_array_test();
                 assert(o_cellData[1][0] == 43);
                 assert(o_cellData[1][1] == 50);
             end
-
         end
 
         $display("\n");

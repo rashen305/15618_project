@@ -13,11 +13,11 @@ module single_pe_test();
     localparam int O_WIDTH = 2 * I_WIDTH;
 
     logic                 clk, rst_l;
-    logic                 i_valid;
+    logic                 i_rowValid, i_colValid;
     logic                 i_acc_clear;
     logic [I_WIDTH - 1:0] i_rowData, i_colData, o_rowData, o_colData;
     logic [O_WIDTH - 1:0] o_accData;
-    logic                 o_valid;
+    logic                 o_rowValid, o_colValid;
 
     // Golden MAC output for verification.
     logic [O_WIDTH - 1:0] golden_mac;
@@ -45,13 +45,15 @@ module single_pe_test();
         // Reset PE initially.
         @(posedge clk) begin
             rst_l <= 1'b0;
-            i_valid <= 1'b0;
+            i_rowValid <= 1'b0;
+            i_colValid <= 1'b0;
             i_acc_clear <= 1'b1;
         end
 
         @(posedge clk) begin
             rst_l <= 1'b1;
-            i_valid <= 1'b1;
+            i_rowValid <= 1'b1;
+            i_colValid <= 1'b1;
             i_acc_clear <= 1'b0;
         end
 
