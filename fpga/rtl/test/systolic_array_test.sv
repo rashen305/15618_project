@@ -17,6 +17,7 @@ module systolic_array_test();
 
      logic clk;
      logic rst_l;
+     logic i_feederDone;
      logic [NUM_ROWS - 1:0]    i_rowsValid;
      logic [NUM_COLS - 1:0]    i_colsValid;
      logic [I_WORD_SIZE - 1:0] i_cellData [NUM_ROWS + NUM_COLS];
@@ -40,53 +41,80 @@ module systolic_array_test();
         forever #10 clk = ~clk;
     end
 
+    task automatic clearInputs();
+        i_rowsValid <= '0;
+        i_colsValid <= '0;
+
+        for (int i = 0; i < NUM_ROWS + NUM_COLS; i++) begin
+            i_cellData[i] <= '0;
+        end
+    endtask : clearInputs
+
+    task automatic driveCycle(
+        input  logic [NUM_ROWS - 1:0] rowsValid,
+        input  logic [NUM_ROWS - 1:0] colsValid,
+        input  logic [I_WORD_SIZE - 1:0] col0Data,
+        input  logic [I_WORD_SIZE - 1:0] col1Data,
+        input  logic [I_WORD_SIZE - 1:0] row0Data,
+        input  logic [I_WORD_SIZE - 1:0] row1Data
+    );
+
+        @(negedge clk);
+        i_rowsValid <= rowsValid;
+        i_colsValid <= colsValid;
+        i_cellData[0] <= col0Data;
+        i_cellData[1] <= col1Data;
+        i_cellData[2] <= row0Data;
+        i_cellData[3] <= row1Data;
+    endtask : driveCycle
+
     initial begin
-        // Reset the entire systolic array.
-        @(posedge clk) begin
-            rst_l <= 1'b0;
-            i_rowsValid <= '0;
-            i_colsValid <= '0;
+        rst_l <= 1'b0;
+        @(posedge clk);
+        rst_l <= 1'b1;
 
-            for (int i = 0; i < NUM_ROWS + NUM_COLS; i++) begin
-                i_cellData[i] <= '0;
+        clearInputs();
+
+        driveCycle(
+            2'b01,
+            2'b01,
+            8'd5,
+            8'd0,
+            8'd1,
+            8'd0
+        );
+
+        driveCycle(
+            2'b11,
+            2'b11,
+            8'd7,
+            8'd6,
+            8'd2,
+            8'd3
+        );
+
+        i_feederDone <= 1'b1;
+
+        driveCycle(
+            2'b10,
+            2'b10,
+            8'd0,
+            8'd8,
+            8'd0,
+            8'd4
+        );
+
+        @(posedge clk);
+
+        wait (o_compDone) begin
+            @(posedge clk);
+            FINAL_RESULT_ASSERT : begin
+                assert(o_cellData[0][0] == 19);
+                assert(o_cellData[0][1] == 22);
+                assert(o_cellData[1][0] == 43);
+                assert(o_cellData[1][1] == 50);
             end
         end
-
-        repeat (2) @(posedge clk);
-
-        // Cycle 1 injection.
-        @(posedge clk) begin
-            i_colsValid <= 2'b11;
-            i_rowsValid <= 2'b11;
-
-            i_cellData[0] <= 5;
-            i_cellData[1] <= 6;
-            i_cellData[2] <= 1;
-            i_cellData[3] <= 3;
-        end
-
-        // Cycle 2 injection.
-        @(posedge clk) begin
-            i_colsValid <= 2'b11;
-            i_rowsValid <= 2'b11;
-
-            i_cellData[0] <= 7;
-            i_cellData[1] <= 8;
-            i_cellData[2] <= 2;
-            i_cellData[3] <= 4;
-        end
-
-        // Stop injecting.
-        @(posedge clk) begin
-            i_colsValid <= '0;
-            i_rowsValid <= '0;
-
-            for (int i = 0; i < NUM_ROWS + NUM_COLS; i++) begin
-                i_cellData[i] = '0;
-            end
-        end
-
-        repeat (6) @(posedge clk);
 
         $display("\n");
         $display("***************************************************************************");

@@ -20,18 +20,14 @@
 *                  propagate.
 *
 * Inputs:
-*   - clk:         System clock -- we will try to run this as fast as possible.
+*   - clk:                System clock -- we will try to run this as fast as possible.
 *
-*   - rst_l:       Active low synchoronous reset.
+*   - rst_l:              Active low synchoronous reset.
 *
-*   - i_valid:     Indicates that the data is valid/ready for computation. Should
-*                  be asserted only for one cycle.
+*   - i_{row, col}Valid:  Indicates that the {row, column} data is valid/ready for computation.
 *
-*   - i_rowData:   Data from the PE in the previous column. For acceptors, this is
-*                  the matrix row data.
-*
-*   - i_colData:   Data from the PE in the previous row. For acceptors, this is
-*                  the matrix column data.
+*   - i_{row, col}Data:   Data from the PE in the previous {column, row}. For acceptors, this is
+*                         the matrix row data.
 *
 * Outputs:
 *   - o_rowData:   Input row data to be passed to the PE in the next column.
@@ -46,10 +42,13 @@ module sa_processing_elem
     (input  logic                     clk,
      // TODO: Synchronous reset for now -- should probably change later.
      input  logic                     rst_l,
-     input  logic                     i_valid,
+     input  logic                     i_rowValid,
+     input  logic                     i_colValid,
      input  logic                     i_acc_clear,
      input  logic [I_WORD_SIZE - 1:0] i_rowData,
      input  logic [I_WORD_SIZE - 1:0] i_colData,
+     output logic                     o_rowValid,
+     output logic                     o_colValid,
      output logic [I_WORD_SIZE - 1:0] o_rowData,
      output logic [I_WORD_SIZE - 1:0] o_colData,
      output logic [O_WORD_SIZE - 1:0] o_accData);
@@ -58,28 +57,45 @@ module sa_processing_elem
     logic [O_WORD_SIZE - 1:0] multOut;
     logic [O_WORD_SIZE - 1:0] macOut;
     logic [O_WORD_SIZE - 1:0] accumulatorData;
+    logic                     compValid;
+
+    assign compValid = (i_rowValid & i_colValid);
 
     // Latch input data.
     register #(.WIDTH(I_WORD_SIZE))
         rowReg(.clk,
                .rst_l,
                .clear(1'b0),
-               .en(i_valid),
+               .en(compValid),
                .regIn(i_rowData),
                .regOut(rowData)),
         colReg(.clk,
                .rst_l,
                .clear(1'b0),
-               .en(i_valid),
+               .en(compValid),
                .regIn(i_colData),
                .regOut(colData));
+
+    register #(.WIDTH(1))
+        rowValidReg(.clk,
+                 .rst_l,
+                 .clear(i_acc_clear),
+                 .en(1'b1),
+                 .regIn(i_rowValid),
+                 .regOut(o_rowValid)),
+        colValidReg(.clk,
+                 .rst_l,
+                 .clear(i_acc_clear),
+                 .en(1'b1),
+                 .regIn(i_colValid),
+                 .regOut(o_colValid));
 
     // Store accumulator data for C[i][j].
     register #(.WIDTH(O_WORD_SIZE))
         accumulatorReg(.clk,
                .rst_l,
                .clear(i_acc_clear),
-               .en(i_valid),
+               .en(compValid),
                .regIn(macOut),
                .regOut(accumulatorData));
 
