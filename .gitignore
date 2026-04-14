@@ -5,21 +5,25 @@
 !fpga/
 !cpu/
 !gpu/
+!software/
 
 # Allow traversal into subdirectories
 !fpga/**
 !cpu/**
 !gpu/**
+!software/**
 
 # Now re-ignore everything inside them
 fpga/*
 cpu/*
 gpu/*
+software/*
 
 # Allow directories recursively
 !fpga/**/
 !cpu/**/
 !gpu/**/
+!software/**/
 
 ########################################
 # Allowed file types in these dirs
@@ -52,6 +56,15 @@ gpu/*
 !gpu/**/*.h
 !gpu/**/*.hpp
 
+!software/**/*.c
+!software/**/*.cpp
+!software/**/*.cc
+!software/**/*.h
+!software/**/*.hpp
+
+# CUDA
+!software/**/*.cu
+
 # Scripts
 !fpga/**/*.py
 !fpga/**/*.pl
@@ -71,10 +84,17 @@ gpu/*
 !gpu/**/*.sh
 !gpu/**/*.dc
 
+!software/**/*.py
+!software/**/*.pl
+!software/**/*.tcl
+!software/**/*.sh
+!software/**/*.dc
+
 # Makefiles
 !fpga/**/Makefile
 !cpu/**/Makefile
 !gpu/**/Makefile
+!software/**/Makefile
 
 # README files
 !fpga/**/README
@@ -83,8 +103,14 @@ gpu/*
 !cpu/**/README.md
 !gpu/**/README
 !gpu/**/README.md
+!software/**/README
+!software/**/README.md
 
 # .gitignore files
 !fpga/**/.gitignore
 !cpu/**/.gitignore
 !gpu/**/.gitignore
+!software/**/.gitignore
+
+# build artifacts
+software/build/
