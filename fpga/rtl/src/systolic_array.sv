@@ -26,18 +26,14 @@
 *   - NUM_COLS:    Number of columns in the systolic array.
 *
 *  Inputs:
-*   - i_rowsValid: A one-hot bit vector to indicate which rows have valid data
-*                  (to be latched).
+*   - i_{rows, cols}Valid: A one-hot bit vector to indicate which {rows, cols} have valid data.
 *
-*   - i_colsValid: A one-hot bit vector to indicate which cols have valid data
-*                  (to be latched).
-*
-*   - i_cellData:  An array to store data to be passed into the systolic array
-*                  for computation. For an NSSA, at steady-state, can accept
-*                  N+M many inputs at once. Note that this is a linear
-*                  array, with the top left corner as index 0. The column data
-*                  goes first, then the row data (i.e. indices 0...M - 1 for
-*                  cols, indices M...N - 1 for rows).
+*   - i_cellData:          An array to store data to be passed into the systolic array
+*                          for computation. For an NSSA, at steady-state, can accept
+*                          N+M many inputs at once. Note that this is a linear
+*                          array, with the top left corner as index 0. The column data
+*                          goes first, then the row data (i.e. indices 0...M - 1 for
+*                          cols, indices M...N - 1 for rows).
 *
 *  Outputs:
 *   - o_cellData:  The data stored in each PE of the systolic array.
@@ -64,7 +60,8 @@ module ns_systolic_array
     logic [O_WORD_SIZE - 1:0] accData[NUM_ROWS][NUM_COLS];
 
     // Per-PE valid signal.
-    logic                     peValid[NUM_ROWS][NUM_COLS];
+    logic                     rowValid[NUM_ROWS][NUM_COLS];
+    logic                     colValid[NUM_ROWS][NUM_COLS];
 
     // Per-PE clear signal.
     logic                     accClear[NUM_ROWS][NUM_COLS];
@@ -73,38 +70,29 @@ module ns_systolic_array
     generate
         for (r = 0; r < NUM_ROWS; r++) begin : gen_ROWS
             for (c = 0; c < NUM_COLS; c++) begin : gen_COLS
-                logic [I_WORD_SIZE - 1:0] i_pe_row;
-                logic [I_WORD_SIZE - 1:0] i_pe_col;
-                logic                     i_pe_valid;
+                logic [I_WORD_SIZE - 1:0] i_peRowData;
+                logic [I_WORD_SIZE - 1:0] i_peColData;
+                logic                     i_peRowValid;
+                logic                     i_peColValid;
 
                 // Left-to-right row data movement.
                 if (c == 0) begin : gen_LEFT_EDGE
-                    assign i_pe_row = i_cellData[NUM_COLS + r];
+                    assign i_peRowData  = i_cellData[NUM_COLS + r];
+                    assign i_peRowValid = i_rowsValid[r];
                 end
                 else begin : gen_INNER_ROW
-                    assign i_pe_row = rowData[r][c - 1];
+                    assign i_peRowData  = rowData[r][c - 1];
+                    assign i_peRowValid = rowValid[r][c - 1];
                 end
 
                 // Top-to-bottom column data movement.
                 if (r == 0) begin : gen_TOP_EDGE
-                    assign i_pe_col = i_cellData[c];
+                    assign i_peColData  = i_cellData[c];
+                    assign i_peColValid = i_colsValid[c];
                 end
                 else begin : gen_INNER_COL
-                    assign i_pe_col = colData[r - 1][c];
-                end
-
-                // Valid signal propagation.
-                if ((r == 0) && (c == 0)) begin : gen_VALID_TOP_LEFT
-                    assign i_pe_valid = (i_rowsValid[0] & i_colsValid[0]);
-                end
-                else if (c == 0) begin : gen_VALID_LEFT
-                    assign i_pe_valid = i_rowsValid[r];
-                end
-                else if (r == 0) begin : gen_VALID_TOP
-                    assign i_pe_valid = i_colsValid[c];
-                end
-                else begin : gen_VALID_INNER
-                    assign i_pe_valid = peValid[r - 1][c - 1];
+                    assign i_peColData  = colData[r - 1][c];
+                    assign i_peColValid = colValid[r - 1][c];
                 end
 
                 // TODO: Might have to deal with inter-array scheduling.
@@ -116,19 +104,36 @@ module ns_systolic_array
                 ) pe (
                     .clk,
                     .rst_l,
-                    .i_valid(i_pe_valid),
+                    .i_rowValid(i_peRowValid),
+                    .i_colValid(i_peColValid),
                     .i_acc_clear(accClear[r][c]),
-                    .i_rowData(i_pe_row),
-                    .i_colData(i_pe_col),
+                    .i_rowData(i_peRowData),
+                    .i_colData(i_peColData),
+                    .o_rowValid(rowValid[r][c]),
+                    .o_colValid(colValid[r][c]),
                     .o_rowData(rowData[r][c]),
                     .o_colData(colData[r][c]),
                     .o_accData(accData[r][c])
                 );
 
-                assign peValid[r][c]    = i_pe_valid;
                 assign o_cellData[r][c] = accData[r][c];
             end
         end
     endgenerate
+
+    logic finalPE_done;
+    assign finalPE_done = (rowValid[NUM_ROWS - 1][NUM_COLS - 1] &
+                           colValid[NUM_ROWS - 1][NUM_COLS - 1]);
+
+    always_ff @(posedge clk) begin
+        if (~rst_l) begin
+            o_compDone <= 1'b0;
+        end
+
+        else begin
+            o_compDone <= finalPE_done;
+        end
+    end
+
 endmodule : ns_systolic_array
 `endif // _SYSTOLIC_ARRAY

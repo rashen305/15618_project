@@ -17,6 +17,7 @@ module single_pe_test();
     logic                 i_acc_clear;
     logic [I_WIDTH - 1:0] i_rowData, i_colData, o_rowData, o_colData;
     logic [O_WIDTH - 1:0] o_accData;
+    logic                 o_valid;
 
     // Golden MAC output for verification.
     logic [O_WIDTH - 1:0] golden_mac;

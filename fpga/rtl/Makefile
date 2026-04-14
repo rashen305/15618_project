@@ -1,4 +1,4 @@
-VCS 	   := vcs -sverilog -q -debug
+VCS 	   := vcs -sverilog -q -debug +vcs+lic+wait
 SRCDIR 	   := src/
 TESTDIR    := test/
 SRC		   := $(SRCDIR)*.sv
