@@ -114,3 +114,9 @@ software/*
 
 # build artifacts
 software/build/
+
+# Python bytecode from local script smoke tests
+__pycache__/
+*.pyc
+fpga/**/__pycache__/
+software/**/__pycache__/

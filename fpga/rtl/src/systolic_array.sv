@@ -53,11 +53,13 @@ module ns_systolic_array
      input  logic [NUM_COLS - 1:0]    i_colsValid,
      input  logic [I_WORD_SIZE - 1:0] i_cellData [NUM_ROWS + NUM_COLS],
      input  logic                     i_feederDone,
+     input  logic                     i_acc_clear,
      output logic [O_WORD_SIZE - 1:0] o_cellData [NUM_ROWS][NUM_COLS],
      output logic                     o_compDone);
 
-    localparam int DRAIN = (NUM_ROWS - 1) + (NUM_COLS - 1);
-    logic [DRAIN:0] done_shift;
+    localparam int DRAIN  = (NUM_ROWS - 1) + (NUM_COLS - 1);
+    localparam int DONE_W = DRAIN + 1;
+    logic [DONE_W - 1:0] done_shift;
 
     // Inter-PE wiring signals.
     logic [I_WORD_SIZE - 1:0] rowData[NUM_ROWS][NUM_COLS];
@@ -71,15 +73,31 @@ module ns_systolic_array
     // Per-PE clear signal.
     logic                     accClear[NUM_ROWS][NUM_COLS];
 
-    always_ff @(posedge clk, negedge rst_l) begin
-        if (~rst_l) begin
-            done_shift <= 1'b0;
+    generate
+        if (DRAIN == 0) begin : gen_DONE_SHIFT_SINGLE
+            always_ff @(posedge clk, negedge rst_l) begin
+                if (~rst_l | i_acc_clear) begin
+                    done_shift <= '0;
+                end
+
+                else begin
+                    done_shift <= i_feederDone;
+                end
+            end
         end
 
-        else begin
-            done_shift <= {done_shift[DRAIN - 1:0], i_feederDone};
+        else begin : gen_DONE_SHIFT
+            always_ff @(posedge clk, negedge rst_l) begin
+                if (~rst_l | i_acc_clear) begin
+                    done_shift <= '0;
+                end
+
+                else begin
+                    done_shift <= {done_shift[DONE_W - 2:0], i_feederDone};
+                end
+            end
         end
-    end
+    endgenerate
 
     genvar r, c;
     generate
@@ -110,8 +128,7 @@ module ns_systolic_array
                     assign i_peColValid = colValid[r - 1][c];
                 end
 
-                // TODO: Might have to deal with inter-array scheduling.
-                assign accClear[r][c] = 1'b0;
+                assign accClear[r][c] = i_acc_clear;
 
                 sa_processing_elem #(
                     .I_WORD_SIZE(I_WORD_SIZE),
@@ -137,6 +154,6 @@ module ns_systolic_array
         end
     endgenerate
 
-    assign o_compDone = done_shift[DRAIN];
+    assign o_compDone = done_shift[DONE_W - 1];
 endmodule : ns_systolic_array
 `endif // _SYSTOLIC_ARRAY

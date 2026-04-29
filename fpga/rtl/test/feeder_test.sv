@@ -17,19 +17,21 @@ module feeder_test();
     localparam int K_DIM       = 3;
     localparam int NUM_COLS    = 2;
 
-     logic clk;
-     logic rst_l;
-     logic [NUM_ROWS - 1:0]    i_rowsValid;
-     logic [NUM_COLS - 1:0]    i_colsValid;
-     logic [I_WORD_SIZE - 1:0] i_cellData [NUM_ROWS + NUM_COLS];
-     logic [O_WORD_SIZE - 1:0] o_cellData [NUM_ROWS][NUM_COLS];
-     logic                     o_compDone;
-     logic [O_WORD_SIZE - 1:0] o_accData;
+    logic clk;
+    logic rst_l;
+    logic [NUM_ROWS - 1:0]    i_rowsValid;
+    logic [NUM_COLS - 1:0]    i_colsValid;
+    logic [I_WORD_SIZE - 1:0] i_cellData [NUM_ROWS + NUM_COLS];
+    logic [O_WORD_SIZE - 1:0] o_cellData [NUM_ROWS][NUM_COLS];
+    logic                     o_compDone;
+    logic [O_WORD_SIZE - 1:0] o_accData;
 
-     logic [I_WORD_SIZE - 1:0] i_matrixA [NUM_ROWS][K_DIM];
-     logic [I_WORD_SIZE - 1:0] i_matrixB [K_DIM][NUM_COLS];
+    logic [I_WORD_SIZE - 1:0] i_matrixA [NUM_ROWS][K_DIM];
+    logic [I_WORD_SIZE - 1:0] i_matrixB [K_DIM][NUM_COLS];
 
-     logic                     feeder_start, feeder_busy, feeder_done;
+    logic                     feeder_start, feeder_busy, feeder_done;
+    logic [$clog2(K_DIM + 1) - 1:0] feeder_k_dim;
+    logic                     i_acc_clear;
 
     sa_wavefront_feeder #(
         .I_WORD_SIZE(I_WORD_SIZE),
@@ -40,6 +42,7 @@ module feeder_test();
         .clk,
         .rst_l,
         .i_start(feeder_start),
+        .i_k_dim(feeder_k_dim),
         .i_matrixA,
         .i_matrixB,
         .o_rowsValid(i_rowsValid),
@@ -57,6 +60,7 @@ module feeder_test();
         .NUM_COLS(NUM_COLS)
     ) systolicArray_DUT(
         .i_feederDone(feeder_done),
+        .i_acc_clear,
         .*
     );
 
@@ -71,6 +75,8 @@ module feeder_test();
     initial begin
         rst_l <= 1'b0;
         feeder_start <= 1'b0;
+        feeder_k_dim <= K_DIM;
+        i_acc_clear <= 1'b0;
 
         i_matrixA[0][0] <= I_WORD_SIZE'(1);
         i_matrixA[0][1] <= I_WORD_SIZE'(2);

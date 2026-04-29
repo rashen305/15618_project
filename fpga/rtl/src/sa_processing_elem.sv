@@ -137,7 +137,8 @@ module sa_processing_elem
     // TODO: Pipeline the MAC operation.
 
     // Multiply inputs.
-    multiplier #(.I_WIDTH(I_WORD_SIZE))
+    multiplier #(.I_WIDTH(I_WORD_SIZE),
+                 .O_WIDTH(O_WORD_SIZE))
         macMultiplier(.multIn1(i_rowData),
                       .multIn2(multColData),
                       .multOut);

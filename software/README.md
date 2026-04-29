@@ -66,3 +66,16 @@ One line per run, for example:
 `backend=gpu_tiled M=1024 N=1024 K=1024 iters=5 sec_total=... sec_per_iter=... gflops=... check=PASS ...`
 
 GPU tiled may show slightly larger float differences vs `ref` under `--check 1`; the harness uses a loose tolerance (`1e-3`).
+
+## CSV sweeps
+
+For repeatable CPU/GPU sweeps, use:
+
+```bash
+./scripts/sweep.py --build --cpu-only --backends ref,cpu_naive,cpu_omp \
+  --sizes 128,256,512,1024 --iters 5 --repeats 3 \
+  --out build/cpu_sweep.csv
+```
+
+With CUDA available, omit `--cpu-only` and include the GPU backends. Rectangular
+cases use `--shapes`, for example `--shapes 256x512x128,512x256x512`.
