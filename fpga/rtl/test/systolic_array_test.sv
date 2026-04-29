@@ -24,6 +24,7 @@ module systolic_array_test();
      logic [O_WORD_SIZE - 1:0] o_cellData [NUM_ROWS][NUM_COLS];
      logic                     o_compDone;
      logic [O_WORD_SIZE - 1:0] o_accData;
+     logic                     i_acc_clear;
 
     ns_systolic_array #(
         .I_WORD_SIZE(I_WORD_SIZE),
@@ -52,7 +53,7 @@ module systolic_array_test();
 
     task automatic driveCycle(
         input  logic [NUM_ROWS - 1:0] rowsValid,
-        input  logic [NUM_ROWS - 1:0] colsValid,
+        input  logic [NUM_COLS - 1:0] colsValid,
         input  logic [I_WORD_SIZE - 1:0] col0Data,
         input  logic [I_WORD_SIZE - 1:0] col1Data,
         input  logic [I_WORD_SIZE - 1:0] row0Data,
@@ -70,6 +71,8 @@ module systolic_array_test();
 
     initial begin
         rst_l <= 1'b0;
+        i_acc_clear <= 1'b0;
+        i_feederDone <= 1'b0;
         @(posedge clk);
         rst_l <= 1'b1;
 

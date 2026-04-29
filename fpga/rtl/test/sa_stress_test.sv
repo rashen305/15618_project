@@ -40,6 +40,8 @@ module sa_stress_test #(
     logic [I_WORD_SIZE - 1:0] i_matrixB [K_DIM][NUM_COLS];
 
     logic                     feeder_start, feeder_busy, feeder_done;
+    logic [$clog2(K_DIM + 1) - 1:0] feeder_k_dim;
+    logic                     i_acc_clear;
 
     logic [O_WORD_SIZE - 1:0] expectedC [NUM_ROWS][NUM_COLS];
 
@@ -54,6 +56,7 @@ module sa_stress_test #(
         .clk,
         .rst_l,
         .i_start(feeder_start),
+        .i_k_dim(feeder_k_dim),
         .i_matrixA,
         .i_matrixB,
         .o_rowsValid(i_rowsValid),
@@ -70,6 +73,7 @@ module sa_stress_test #(
         .NUM_COLS(NUM_COLS)
     ) systolicArray_DUT(
         .i_feederDone(feeder_done),
+        .i_acc_clear,
         .*
     );
 
@@ -83,7 +87,7 @@ module sa_stress_test #(
 
     task automatic clear_mats();
         for (int r = 0; r < NUM_ROWS; r++) begin
-            for (int k = 0; k < NUM_COLS; k++) begin
+            for (int k = 0; k < K_DIM; k++) begin
                 i_matrixA[r][k] = '0;
             end
         end
@@ -98,6 +102,8 @@ module sa_stress_test #(
     task automatic reset_case();
         rst_l <= 1'b0;
         feeder_start <= 1'b0;
+        feeder_k_dim <= K_DIM;
+        i_acc_clear <= 1'b0;
         clear_mats();
         repeat (2) @(posedge clk);
         rst_l <= 1'b1;

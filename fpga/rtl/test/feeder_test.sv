@@ -30,6 +30,8 @@ module feeder_test();
     logic [I_WORD_SIZE - 1:0] i_matrixB [K_DIM][NUM_COLS];
 
     logic                     feeder_start, feeder_busy, feeder_done;
+    logic [$clog2(K_DIM + 1) - 1:0] feeder_k_dim;
+    logic                     i_acc_clear;
 
     sa_wavefront_feeder #(
         .I_WORD_SIZE(I_WORD_SIZE),
@@ -40,6 +42,7 @@ module feeder_test();
         .clk,
         .rst_l,
         .i_start(feeder_start),
+        .i_k_dim(feeder_k_dim),
         .i_matrixA,
         .i_matrixB,
         .o_rowsValid(i_rowsValid),
@@ -57,6 +60,7 @@ module feeder_test();
         .NUM_COLS(NUM_COLS)
     ) systolicArray_DUT(
         .i_feederDone(feeder_done),
+        .i_acc_clear,
         .*
     );
 
@@ -71,6 +75,8 @@ module feeder_test();
     initial begin
         rst_l <= 1'b0;
         feeder_start <= 1'b0;
+        feeder_k_dim <= K_DIM;
+        i_acc_clear <= 1'b0;
 
         i_matrixA[0][0] <= I_WORD_SIZE'(1);
         i_matrixA[0][1] <= I_WORD_SIZE'(2);

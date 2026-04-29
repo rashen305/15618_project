@@ -11,6 +11,7 @@ module sa_wavefront_feeder
     (input  logic clk,
      input  logic rst_l,
      input  logic i_start,
+     input  logic [$clog2(K_DIM + 1) - 1:0] i_k_dim,
      input  logic [I_WORD_SIZE - 1:0] i_matrixA [NUM_ROWS][K_DIM],
      input  logic [I_WORD_SIZE - 1:0] i_matrixB [K_DIM][NUM_COLS],
      output logic [NUM_ROWS - 1:0]    o_rowsValid,
@@ -19,13 +20,19 @@ module sa_wavefront_feeder
      output logic                     o_busy,
      output logic                     o_done);
 
-    localparam int TOTAL_CYCLES = K_DIM + NUM_ROWS + NUM_COLS - 2;
-    localparam int COUNT_W      = (TOTAL_CYCLES <= 1) ? 1 : $clog2(TOTAL_CYCLES + 1);
+    localparam int MAX_TOTAL_CYCLES = K_DIM + NUM_ROWS + NUM_COLS - 2;
+    localparam int COUNT_W          = (MAX_TOTAL_CYCLES <= 1) ? 1 : $clog2(MAX_TOTAL_CYCLES + 1);
+    localparam int K_W              = (K_DIM <= 1) ? 1 : $clog2(K_DIM + 1);
 
     logic [COUNT_W - 1:0] cycle_count;
+    logic [K_W - 1:0]     active_k_dim;
     logic                 active;
     integer               i, j;
     integer               k_row, k_col;
+    integer               total_cycles;
+
+    assign active_k_dim = (i_k_dim == '0) ? K_W'(K_DIM) : i_k_dim;
+    assign total_cycles = active_k_dim + NUM_ROWS + NUM_COLS - 2;
 
     always_ff @(posedge clk, negedge rst_l) begin
         if (~rst_l) begin
@@ -43,7 +50,7 @@ module sa_wavefront_feeder
             end
 
             else if (active) begin
-                if (cycle_count == TOTAL_CYCLES - 1) begin
+                if (cycle_count == COUNT_W'(total_cycles - 1)) begin
                     cycle_count <= '0;
                     active      <= 1'b0;
                     o_done      <= 1'b1;
@@ -70,7 +77,7 @@ module sa_wavefront_feeder
             for (i = 0; i < NUM_ROWS; i++) begin
                 k_row = cycle_count - i;
 
-                if ((k_row >= '0) && (k_row < K_DIM)) begin
+                if ((k_row >= 0) && (k_row < active_k_dim)) begin
                     o_rowsValid[i] = 1'b1;
                     o_cellData[NUM_COLS + i] = i_matrixA[i][k_row];
                 end
@@ -80,7 +87,7 @@ module sa_wavefront_feeder
             for (j = 0; j < NUM_COLS; j++) begin
                 k_col = cycle_count - j;
 
-                if ((k_col >= '0) && (k_col < K_DIM)) begin
+                if ((k_col >= 0) && (k_col < active_k_dim)) begin
                     o_colsValid[j] = 1'b1;
                     o_cellData[j] = i_matrixB[k_col][j];
                 end
