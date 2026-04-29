@@ -10,6 +10,8 @@
 parameter int SA_ROWS          = 4;
 parameter int SA_COLS          = 4;
 parameter int MATRIX_WORD_SIZE = 32;
+parameter int SA_DATAFLOW_OS   = 0;
+parameter int SA_DATAFLOW_WS   = 1;
 
 // Output will be double the input word size due to multiplication.
 parameter int SA_WORD_SIZE     = (MATRIX_WORD_SIZE * 2);

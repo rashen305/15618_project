@@ -109,6 +109,12 @@ Backend parse_backend(std::string_view s) {
   throw std::invalid_argument("unknown backend: " + std::string(s));
 }
 
+TimingMode parse_timing_mode(std::string_view s) {
+  if (s == "end_to_end") return TimingMode::EndToEnd;
+  if (s == "compute_only") return TimingMode::ComputeOnly;
+  throw std::invalid_argument("unknown timing_mode: " + std::string(s));
+}
+
 const char* backend_name(Backend b) {
   switch (b) {
     case Backend::Ref:
@@ -125,8 +131,18 @@ const char* backend_name(Backend b) {
   return "unknown";
 }
 
+const char* timing_mode_name(TimingMode m) {
+  switch (m) {
+    case TimingMode::EndToEnd:
+      return "end_to_end";
+    case TimingMode::ComputeOnly:
+      return "compute_only";
+  }
+  return "unknown";
+}
+
 void gemm(Backend backend, const MatrixF32& a, const MatrixF32& b, MatrixF32& c,
-          std::size_t tile) {
+          std::size_t tile, TimingMode timing_mode) {
   switch (backend) {
     case Backend::Ref:
       gemm_ref(a, b, c);
@@ -151,9 +167,9 @@ void gemm(Backend backend, const MatrixF32& a, const MatrixF32& b, MatrixF32& c,
 #else
       //this path keeps the same c a b interface as cpu
       if (backend == Backend::GpuNaive) {
-        gemm_gpu_naive(a, b, c);
+        gemm_gpu_naive(a, b, c, timing_mode);
       } else {
-        gemm_gpu_tiled(a, b, c, tile);
+        gemm_gpu_tiled(a, b, c, tile, timing_mode);
       }
       return;
 #endif

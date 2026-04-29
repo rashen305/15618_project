@@ -17,6 +17,7 @@ namespace {
 
 struct Args {
   gemmbench::Backend backend = gemmbench::Backend::Ref;
+  gemmbench::TimingMode timing_mode = gemmbench::TimingMode::EndToEnd;
   std::size_t m = 1024;
   std::size_t n = 1024;
   std::size_t k = 1024;
@@ -71,6 +72,7 @@ std::optional<int> parse_int(std::string_view s) {
       << "Usage:\n"
       << "  " << prog
       << " [--backend ref|cpu_naive|cpu_omp|gpu_naive|gpu_tiled]\n"
+      << "       [--timing_mode end_to_end|compute_only]\n"
       << "       [--size N | --m M --n N --k K]\n"
       << "       [--tile T] [--iters I] [--seed S] [--check 0|1] [--warmup 0|1]\n"
       << "\n"
@@ -78,6 +80,7 @@ std::optional<int> parse_int(std::string_view s) {
       << "  " << prog << " --backend ref --size 512 --iters 3 --check 1\n"
       << "  " << prog << " --backend cpu_omp --size 1024 --tile 64 --iters 5\n"
       << "  " << prog << " --backend gpu_tiled --size 1024 --tile 16 --iters 20 --check 1\n"
+      << "  " << prog << " --backend gpu_tiled --timing_mode compute_only --size 1024 --iters 20\n"
       << "  " << prog << " --m 256 --n 256 --k 512 --iters 5\n";
   std::exit(2);
 }
@@ -104,6 +107,8 @@ Args parse_args(int argc, char** argv) {
       a.m = *v;
       a.n = *v;
       a.k = *v;
+    } else if (arg == "--timing_mode") {
+      a.timing_mode = gemmbench::parse_timing_mode(need_value("--timing_mode"));
     } else if (arg == "--m") {
       const auto v = parse_size(need_value("--m"));
       if (!v) usage(argv[0]);
@@ -176,14 +181,14 @@ int main(int argc, char** argv) {
 
     if (args.warmup) {
       //warmup is not included in timing
-      gemmbench::gemm(args.backend, a, b, c, args.tile);
+      gemmbench::gemm(args.backend, a, b, c, args.tile, args.timing_mode);
       gemmbench::zero(c);
     }
 
     //time includes iters calls to gemm
     const auto t0 = std::chrono::steady_clock::now();
     for (int it = 0; it < args.iters; ++it) {
-      gemmbench::gemm(args.backend, a, b, c, args.tile);
+      gemmbench::gemm(args.backend, a, b, c, args.tile, args.timing_mode);
     }
     const auto t1 = std::chrono::steady_clock::now();
     const std::chrono::duration<double> dt = t1 - t0;
@@ -191,10 +196,16 @@ int main(int argc, char** argv) {
     bool ok = true;
     gemmbench::ErrorStats stats{};
     if (args.check) {
+      //for gpu compute_only timing, fetch output once outside timed region
+      if (args.timing_mode == gemmbench::TimingMode::ComputeOnly &&
+          (args.backend == gemmbench::Backend::GpuNaive ||
+           args.backend == gemmbench::Backend::GpuTiled)) {
+        gemmbench::gemm(args.backend, a, b, c, args.tile, gemmbench::TimingMode::EndToEnd);
+      }
       //always validate against the ref backend
       gemmbench::MatrixF32 cref(args.m, args.n);
       gemmbench::zero(cref);
-      gemmbench::gemm(gemmbench::Backend::Ref, a, b, cref, 0);
+      gemmbench::gemm(gemmbench::Backend::Ref, a, b, cref, 0, gemmbench::TimingMode::EndToEnd);
       stats = gemmbench::compute_error_stats(cref, c);
       ok = (stats.max_abs_err <= 1e-3f) || (stats.max_rel_err <= 1e-3f);
     }
@@ -204,6 +215,7 @@ int main(int argc, char** argv) {
 
     std::cout << std::fixed << std::setprecision(6);
     std::cout << "backend=" << gemmbench::backend_name(args.backend) << " ";
+    std::cout << "timing_mode=" << gemmbench::timing_mode_name(args.timing_mode) << " ";
     std::cout << "M=" << args.m << " N=" << args.n << " K=" << args.k << " ";
     std::cout << "iters=" << args.iters << " ";
     std::cout << "sec_total=" << seconds << " ";

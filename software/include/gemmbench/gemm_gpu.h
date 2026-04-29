@@ -2,16 +2,18 @@
 
 #include <cstddef>
 
+#include "gemmbench/gemm.h"
 #include "gemmbench/matrix.h"
 
 namespace gemmbench {
 
 //host wrappers include h2d kernel d2h
 //device buffers are reused when possible
-void gemm_gpu_naive(const MatrixF32& a, const MatrixF32& b, MatrixF32& c);
+void gemm_gpu_naive(const MatrixF32& a, const MatrixF32& b, MatrixF32& c,
+                    TimingMode timing_mode);
 
 //shared memory tiled gemm. tile is 16 or 32
 void gemm_gpu_tiled(const MatrixF32& a, const MatrixF32& b, MatrixF32& c,
-                    std::size_t tile);
+                    std::size_t tile, TimingMode timing_mode);
 
 }

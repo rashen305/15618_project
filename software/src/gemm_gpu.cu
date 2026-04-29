@@ -87,6 +87,10 @@ float* d_C = nullptr;
 std::size_t cap_a = 0;
 std::size_t cap_b = 0;
 std::size_t cap_c = 0;
+bool resident_inputs_valid = false;
+int resident_m = 0;
+int resident_n = 0;
+int resident_k = 0;
 
 void ensure_device_buffers(std::size_t m, std::size_t n, std::size_t k) {
   //reallocate only when a bigger capacity is needed
@@ -109,8 +113,9 @@ void ensure_device_buffers(std::size_t m, std::size_t n, std::size_t k) {
 
 }  // namespace detail
 
-void gemm_gpu_naive(const MatrixF32& a, const MatrixF32& b, MatrixF32& c) {
-  //this wrapper includes h2d and d2h copies
+void gemm_gpu_naive(const MatrixF32& a, const MatrixF32& b, MatrixF32& c,
+                    TimingMode timing_mode) {
+  //end_to_end includes h2d and d2h copies. compute_only times kernel only
   const int M = static_cast<int>(a.rows);
   const int K = static_cast<int>(a.cols);
   const int N = static_cast<int>(b.cols);
@@ -123,20 +128,46 @@ void gemm_gpu_naive(const MatrixF32& a, const MatrixF32& b, MatrixF32& c) {
                                 static_cast<std::size_t>(N),
                                 static_cast<std::size_t>(K));
 
-  CUDA_CHECK(cudaMemcpy(detail::d_A, a.ptr(), M * K * sizeof(float), cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(detail::d_B, b.ptr(), K * N * sizeof(float), cudaMemcpyHostToDevice));
+  const bool must_upload = !detail::resident_inputs_valid || detail::resident_m != M ||
+                           detail::resident_n != N || detail::resident_k != K;
+  if (timing_mode == TimingMode::EndToEnd || must_upload) {
+    CUDA_CHECK(
+        cudaMemcpy(detail::d_A, a.ptr(), M * K * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(
+        cudaMemcpy(detail::d_B, b.ptr(), K * N * sizeof(float), cudaMemcpyHostToDevice));
+    detail::resident_inputs_valid = true;
+    detail::resident_m = M;
+    detail::resident_n = N;
+    detail::resident_k = K;
+  }
 
   dim3 block(16, 16);
   dim3 grid((N + block.x - 1) / block.x, (M + block.y - 1) / block.y);
-  detail::gemm_naive_kernel<<<grid, block>>>(detail::d_A, detail::d_B, detail::d_C, M, N, K);
-  CUDA_CHECK(cudaGetLastError());
-  CUDA_CHECK(cudaDeviceSynchronize());
+  if (timing_mode == TimingMode::ComputeOnly) {
+    cudaEvent_t start, stop;
+    CUDA_CHECK(cudaEventCreate(&start));
+    CUDA_CHECK(cudaEventCreate(&stop));
+    CUDA_CHECK(cudaEventRecord(start));
+    detail::gemm_naive_kernel<<<grid, block>>>(detail::d_A, detail::d_B, detail::d_C, M, N, K);
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaEventRecord(stop));
+    CUDA_CHECK(cudaEventSynchronize(stop));
+    CUDA_CHECK(cudaEventDestroy(start));
+    CUDA_CHECK(cudaEventDestroy(stop));
+  } else {
+    detail::gemm_naive_kernel<<<grid, block>>>(detail::d_A, detail::d_B, detail::d_C, M, N, K);
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
+  }
 
-  CUDA_CHECK(cudaMemcpy(c.ptr(), detail::d_C, M * N * sizeof(float), cudaMemcpyDeviceToHost));
+  if (timing_mode == TimingMode::EndToEnd) {
+    CUDA_CHECK(
+        cudaMemcpy(c.ptr(), detail::d_C, M * N * sizeof(float), cudaMemcpyDeviceToHost));
+  }
 }
 
 void gemm_gpu_tiled(const MatrixF32& a, const MatrixF32& b, MatrixF32& c,
-                    std::size_t tile) {
+                    std::size_t tile, TimingMode timing_mode) {
   //tile is a thread block dimension
   const int M = static_cast<int>(a.rows);
   const int K = static_cast<int>(a.cols);
@@ -150,9 +181,25 @@ void gemm_gpu_tiled(const MatrixF32& a, const MatrixF32& b, MatrixF32& c,
                                 static_cast<std::size_t>(N),
                                 static_cast<std::size_t>(K));
 
-  CUDA_CHECK(cudaMemcpy(detail::d_A, a.ptr(), M * K * sizeof(float), cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(detail::d_B, b.ptr(), K * N * sizeof(float), cudaMemcpyHostToDevice));
+  const bool must_upload = !detail::resident_inputs_valid || detail::resident_m != M ||
+                           detail::resident_n != N || detail::resident_k != K;
+  if (timing_mode == TimingMode::EndToEnd || must_upload) {
+    CUDA_CHECK(
+        cudaMemcpy(detail::d_A, a.ptr(), M * K * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(
+        cudaMemcpy(detail::d_B, b.ptr(), K * N * sizeof(float), cudaMemcpyHostToDevice));
+    detail::resident_inputs_valid = true;
+    detail::resident_m = M;
+    detail::resident_n = N;
+    detail::resident_k = K;
+  }
 
+  cudaEvent_t start, stop;
+  if (timing_mode == TimingMode::ComputeOnly) {
+    CUDA_CHECK(cudaEventCreate(&start));
+    CUDA_CHECK(cudaEventCreate(&stop));
+    CUDA_CHECK(cudaEventRecord(start));
+  }
   if (tile == 32) {
     constexpr int TILE = 32;
     dim3 block(TILE, TILE);
@@ -168,9 +215,19 @@ void gemm_gpu_tiled(const MatrixF32& a, const MatrixF32& b, MatrixF32& c,
   }
 
   CUDA_CHECK(cudaGetLastError());
-  CUDA_CHECK(cudaDeviceSynchronize());
+  if (timing_mode == TimingMode::ComputeOnly) {
+    CUDA_CHECK(cudaEventRecord(stop));
+    CUDA_CHECK(cudaEventSynchronize(stop));
+    CUDA_CHECK(cudaEventDestroy(start));
+    CUDA_CHECK(cudaEventDestroy(stop));
+  } else {
+    CUDA_CHECK(cudaDeviceSynchronize());
+  }
 
-  CUDA_CHECK(cudaMemcpy(c.ptr(), detail::d_C, M * N * sizeof(float), cudaMemcpyDeviceToHost));
+  if (timing_mode == TimingMode::EndToEnd) {
+    CUDA_CHECK(
+        cudaMemcpy(c.ptr(), detail::d_C, M * N * sizeof(float), cudaMemcpyDeviceToHost));
+  }
 }
 
 }

@@ -45,7 +45,8 @@ module ns_systolic_array
     #(parameter int I_WORD_SIZE = MATRIX_WORD_SIZE,
       parameter int O_WORD_SIZE = 2 * I_WORD_SIZE,
       parameter int NUM_ROWS    = SA_ROWS,
-      parameter int NUM_COLS    = SA_COLS)
+      parameter int NUM_COLS    = SA_COLS,
+      parameter int DATAFLOW_MODE = SA_DATAFLOW_OS)
     (input  logic clk,
      input  logic rst_l,
      input  logic [NUM_ROWS - 1:0]    i_rowsValid,
@@ -114,7 +115,8 @@ module ns_systolic_array
 
                 sa_processing_elem #(
                     .I_WORD_SIZE(I_WORD_SIZE),
-                    .O_WORD_SIZE(O_WORD_SIZE)
+                    .O_WORD_SIZE(O_WORD_SIZE),
+                    .DATAFLOW_MODE(DATAFLOW_MODE)
                 ) pe (
                     .clk,
                     .rst_l,
