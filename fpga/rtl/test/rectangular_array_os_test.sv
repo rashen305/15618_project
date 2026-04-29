@@ -1,16 +1,10 @@
-/*
- * rectangular_array_ws_test.sv: WS-mode variant of rectangular_array_test.
- *
- * Validates that switching DATAFLOW_MODE to WS still produces the same
- * rectangular GEMM result for A (NUM_ROWS x K_DIM) and B (K_DIM x NUM_COLS).
- */
-
 `timescale 1ns/1ns
 
-`include "sa_wavefront_feeder.sv"
+`include "sa_processing_elem.sv"
 `include "systolic_array.sv"
+`include "sa_wavefront_feeder.sv"
 
-module rectangular_array_ws_test();
+module rectangular_array_os_test();
     localparam int I_WORD_SIZE = 8;
     localparam int NUM_ROWS    = 2;
     localparam int K_DIM       = 3;
@@ -53,8 +47,7 @@ module rectangular_array_ws_test();
         .I_WORD_SIZE(I_WORD_SIZE),
         .O_WORD_SIZE(O_WORD_SIZE),
         .NUM_ROWS(NUM_ROWS),
-        .NUM_COLS(NUM_COLS),
-        .DATAFLOW_MODE(SA_DATAFLOW_WS)
+        .NUM_COLS(NUM_COLS)
     ) dut(
         .clk,
         .rst_l,
@@ -94,11 +87,6 @@ module rectangular_array_ws_test();
 
         wait (o_compDone);
         @(posedge clk);
-
-        // Expected C = A*B (same as OS test).
-        $display("WS results (2x3): row0=%0d %0d %0d row1=%0d %0d %0d",
-                 o_cellData[0][0], o_cellData[0][1], o_cellData[0][2],
-                 o_cellData[1][0], o_cellData[1][1], o_cellData[1][2]);
         assert(o_cellData[0][0] == 8'd30);
         assert(o_cellData[0][1] == 8'd36);
         assert(o_cellData[0][2] == 8'd42);
@@ -106,7 +94,7 @@ module rectangular_array_ws_test();
         assert(o_cellData[1][1] == 8'd81);
         assert(o_cellData[1][2] == 8'd96);
 
-        $display("RECTANGULAR ARRAY WS TEST PASSED");
+        $display("RECTANGULAR ARRAY OS TEST PASSED");
         $finish;
     end
 endmodule

@@ -1,44 +1,44 @@
 /*
- * systolic_array_ws_test.sv: WS-mode variant of systolic_array_test.
- *
- * This keeps the same stimulus/expected values as the OS test, but
- * forces DATAFLOW_MODE = SA_DATAFLOW_WS to validate the PE behavior.
- */
+* systolic_array_os_test.sv: Tests output-stationary (OS) mode of the systolic array.
+*
+* Author: Albert Luo (albertlu)
+*/
 
 `timescale 1ns/1ns
 
 `include "sa_processing_elem.sv"
 `include "systolic_array.sv"
 
-module systolic_array_ws_test();
+module systolic_array_os_test();
     localparam int I_WORD_SIZE = 8;
     localparam int O_WORD_SIZE = 2 * I_WORD_SIZE;
     localparam int NUM_ROWS    = 2;
     localparam int NUM_COLS    = 2;
 
-    logic clk;
-    logic rst_l;
-    logic i_feederDone;
-    logic i_acc_clear;
-    logic [NUM_ROWS - 1:0]    i_rowsValid;
-    logic [NUM_COLS - 1:0]    i_colsValid;
-    logic [I_WORD_SIZE - 1:0] i_cellData [NUM_ROWS + NUM_COLS];
-    logic [O_WORD_SIZE - 1:0] o_cellData [NUM_ROWS][NUM_COLS];
-    logic                     o_compDone;
-    logic [O_WORD_SIZE - 1:0] o_accData;
+     logic clk;
+     logic rst_l;
+     logic i_feederDone;
+     logic [NUM_ROWS - 1:0]    i_rowsValid;
+     logic [NUM_COLS - 1:0]    i_colsValid;
+     logic [I_WORD_SIZE - 1:0] i_cellData [NUM_ROWS + NUM_COLS];
+     logic [O_WORD_SIZE - 1:0] o_cellData [NUM_ROWS][NUM_COLS];
+     logic                     o_compDone;
+     logic [O_WORD_SIZE - 1:0] o_accData;
+     logic                     i_acc_clear;
 
     ns_systolic_array #(
         .I_WORD_SIZE(I_WORD_SIZE),
         .O_WORD_SIZE(O_WORD_SIZE),
         .NUM_ROWS(NUM_ROWS),
-        .NUM_COLS(NUM_COLS),
-        .DATAFLOW_MODE(SA_DATAFLOW_WS)
-    ) systolicArray_DUT(.*);
+        .NUM_COLS(NUM_COLS)
+    )
+        systolicArray_DUT(.*);
 
     // Clocking block.
     initial begin
         clk   = 0;
         rst_l = 1;
+
         forever #10 clk = ~clk;
     end
 
@@ -53,12 +53,13 @@ module systolic_array_ws_test();
 
     task automatic driveCycle(
         input  logic [NUM_ROWS - 1:0] rowsValid,
-        input  logic [NUM_ROWS - 1:0] colsValid,
+        input  logic [NUM_COLS - 1:0] colsValid,
         input  logic [I_WORD_SIZE - 1:0] col0Data,
         input  logic [I_WORD_SIZE - 1:0] col1Data,
         input  logic [I_WORD_SIZE - 1:0] row0Data,
         input  logic [I_WORD_SIZE - 1:0] row1Data
     );
+
         @(negedge clk);
         i_rowsValid <= rowsValid;
         i_colsValid <= colsValid;
@@ -69,7 +70,7 @@ module systolic_array_ws_test();
     endtask : driveCycle
 
     initial begin
-        rst_l       <= 1'b0;
+        rst_l <= 1'b0;
         i_acc_clear <= 1'b0;
         i_feederDone <= 1'b0;
         @(posedge clk);
@@ -77,7 +78,6 @@ module systolic_array_ws_test();
 
         clearInputs();
 
-        // Same OS stimulus as the original test.
         driveCycle(
             2'b01,
             2'b01,
@@ -112,10 +112,6 @@ module systolic_array_ws_test();
         wait (o_compDone) begin
             @(posedge clk);
             FINAL_RESULT_ASSERT : begin
-                $display("WS results (2x2): c00=%0d c01=%0d c10=%0d c11=%0d",
-                         o_cellData[0][0], o_cellData[0][1],
-                         o_cellData[1][0], o_cellData[1][1]);
-                // Expected C = A*B (same as OS test).
                 assert(o_cellData[0][0] == 19);
                 assert(o_cellData[0][1] == 22);
                 assert(o_cellData[1][0] == 43);
@@ -125,11 +121,10 @@ module systolic_array_ws_test();
 
         $display("\n");
         $display("***************************************************************************");
-        $display("                          WS ARRAY TEST PASSED!                           ");
+        $display("                       OS ARRAY TEST PASSED!                               ");
         $display("***************************************************************************");
         $display("\n");
 
         $finish;
     end
-endmodule : systolic_array_ws_test
-
+endmodule : systolic_array_os_test

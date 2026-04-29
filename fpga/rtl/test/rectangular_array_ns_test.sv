@@ -1,16 +1,21 @@
 /*
- * rectangular_array_ws_test.sv: WS-mode variant of rectangular_array_test.
+ * rectangular_array_ns_test.sv: NS (input-stationary) mode variant of
+ * rectangular_array_os_test, using the wavefront feeder.
  *
- * Validates that switching DATAFLOW_MODE to WS still produces the same
- * rectangular GEMM result for A (NUM_ROWS x K_DIM) and B (K_DIM x NUM_COLS).
+ * Verifies that the NS dataflow produces the same correct GEMM result as
+ * OS/WS for a 2-row × 3-column array with K=3.
+ *
+ * A = [[1,2,3],[4,5,6]]  B = [[1,2,3],[4,5,6],[7,8,9]]
+ * Expected C = [[30,36,42],[66,81,96]]
  */
 
 `timescale 1ns/1ns
 
-`include "sa_wavefront_feeder.sv"
+`include "sa_processing_elem.sv"
 `include "systolic_array.sv"
+`include "sa_wavefront_feeder.sv"
 
-module rectangular_array_ws_test();
+module rectangular_array_ns_test();
     localparam int I_WORD_SIZE = 8;
     localparam int NUM_ROWS    = 2;
     localparam int K_DIM       = 3;
@@ -54,7 +59,7 @@ module rectangular_array_ws_test();
         .O_WORD_SIZE(O_WORD_SIZE),
         .NUM_ROWS(NUM_ROWS),
         .NUM_COLS(NUM_COLS),
-        .DATAFLOW_MODE(SA_DATAFLOW_WS)
+        .DATAFLOW_MODE(SA_DATAFLOW_NS)
     ) dut(
         .clk,
         .rst_l,
@@ -77,11 +82,11 @@ module rectangular_array_ws_test();
         i_acc_clear  <= 1'b0;
         feeder_start <= 1'b0;
 
-        // A = [ [1,2,3], [4,5,6] ]
+        // A = [[1,2,3],[4,5,6]]
         i_matrixA[0][0] <= 8'd1; i_matrixA[0][1] <= 8'd2; i_matrixA[0][2] <= 8'd3;
         i_matrixA[1][0] <= 8'd4; i_matrixA[1][1] <= 8'd5; i_matrixA[1][2] <= 8'd6;
 
-        // B = [ [1,2,3], [4,5,6], [7,8,9] ]
+        // B = [[1,2,3],[4,5,6],[7,8,9]]
         i_matrixB[0][0] <= 8'd1; i_matrixB[0][1] <= 8'd2; i_matrixB[0][2] <= 8'd3;
         i_matrixB[1][0] <= 8'd4; i_matrixB[1][1] <= 8'd5; i_matrixB[1][2] <= 8'd6;
         i_matrixB[2][0] <= 8'd7; i_matrixB[2][1] <= 8'd8; i_matrixB[2][2] <= 8'd9;
@@ -95,10 +100,10 @@ module rectangular_array_ws_test();
         wait (o_compDone);
         @(posedge clk);
 
-        // Expected C = A*B (same as OS test).
-        $display("WS results (2x3): row0=%0d %0d %0d row1=%0d %0d %0d",
+        $display("NS rect (2x3): row0=%0d %0d %0d  row1=%0d %0d %0d",
                  o_cellData[0][0], o_cellData[0][1], o_cellData[0][2],
                  o_cellData[1][0], o_cellData[1][1], o_cellData[1][2]);
+
         assert(o_cellData[0][0] == 8'd30);
         assert(o_cellData[0][1] == 8'd36);
         assert(o_cellData[0][2] == 8'd42);
@@ -106,8 +111,7 @@ module rectangular_array_ws_test();
         assert(o_cellData[1][1] == 8'd81);
         assert(o_cellData[1][2] == 8'd96);
 
-        $display("RECTANGULAR ARRAY WS TEST PASSED");
+        $display("RECTANGULAR ARRAY NS TEST PASSED");
         $finish;
     end
 endmodule
-

@@ -21,7 +21,8 @@ module tiled_gemm_accelerator
       parameter int DIM_WIDTH            = 16,
       parameter int ADDR_WIDTH           = 32,
       parameter int MEM_DATA_WIDTH       = O_WORD_SIZE,
-      parameter bit ENABLE_DOUBLE_BUFFER = 1'b1)
+      parameter bit ENABLE_DOUBLE_BUFFER = 1'b1,
+      parameter int DATAFLOW_MODE        = SA_DATAFLOW_OS)
     (input  logic                         clk,
      input  logic                         rst_l,
 
@@ -135,6 +136,15 @@ module tiled_gemm_accelerator
     int unsigned              write_r;
     int unsigned              write_c;
 
+    // WS reuse: set after the first m_tile for a given n_tile completes;
+    // B tiles remain in the ping-pong buffers so subsequent m_tiles skip
+    // the B memory read.  Cleared when col_base (n_tile) advances.
+    logic                     stationary_b_loaded;
+    // NS reuse: set after the first n_tile for a given m_tile completes;
+    // A tiles remain in the buffers so subsequent n_tiles skip A reads.
+    // Cleared when row_base (m_tile) advances.
+    logic                     stationary_a_loaded;
+
     initial begin
         if ((MEM_DATA_WIDTH % 8) != 0) begin
             $fatal(1, "tiled_gemm_accelerator requires byte-aligned MEM_DATA_WIDTH.");
@@ -176,7 +186,8 @@ module tiled_gemm_accelerator
         .I_WORD_SIZE(I_WORD_SIZE),
         .O_WORD_SIZE(O_WORD_SIZE),
         .NUM_ROWS(NUM_ROWS),
-        .NUM_COLS(NUM_COLS)
+        .NUM_COLS(NUM_COLS),
+        .DATAFLOW_MODE(DATAFLOW_MODE)
     ) array (
         .clk,
         .rst_l,
@@ -196,8 +207,8 @@ module tiled_gemm_accelerator
         k_span_at = (remaining < K_TILE) ? remaining : K_TILE;
     endfunction : k_span_at
 
-    function automatic int unsigned other_buf(input int unsigned buf);
-        other_buf = (buf == 0) ? 1 : 0;
+    function automatic int unsigned other_buf(input int unsigned ibuf);
+        other_buf = (ibuf == 0) ? 1 : 0;
     endfunction : other_buf
 
     function automatic bit load_a_in_bounds();
@@ -245,19 +256,46 @@ module tiled_gemm_accelerator
         element_addr = ADDR_WIDTH'(offset_bytes);
     endfunction : element_addr
 
-    task automatic clear_buffer(input int unsigned buf);
-        for (int r = 0; r < NUM_ROWS; r++) begin
-            for (int kk = 0; kk < K_TILE; kk++) begin
-                tile_a[buf][r][kk] <= '0;
-            end
-        end
+    task automatic clear_a_only(input int unsigned ibuf);
+        for (int r = 0; r < NUM_ROWS; r++)
+            for (int kk = 0; kk < K_TILE; kk++)
+                tile_a[ibuf][r][kk] <= '0;
+    endtask : clear_a_only
 
-        for (int kk = 0; kk < K_TILE; kk++) begin
-            for (int c = 0; c < NUM_COLS; c++) begin
-                tile_b[buf][kk][c] <= '0;
-            end
-        end
+    task automatic clear_b_only(input int unsigned ibuf);
+        for (int kk = 0; kk < K_TILE; kk++)
+            for (int c = 0; c < NUM_COLS; c++)
+                tile_b[ibuf][kk][c] <= '0;
+    endtask : clear_b_only
+
+    task automatic clear_buffer(input int unsigned ibuf);
+        clear_a_only(ibuf);
+        clear_b_only(ibuf);
     endtask : clear_buffer
+
+    // Clear only A in both buffers (WS: preserve cached B across m_tiles).
+    task automatic clear_all_a();
+        clear_a_only(0);
+        clear_a_only(1);
+        buffer_valid[0]  <= 1'b0;
+        buffer_valid[1]  <= 1'b0;
+        buffer_k_base[0] <= 0;
+        buffer_k_base[1] <= 0;
+        buffer_k_span[0] <= 0;
+        buffer_k_span[1] <= 0;
+    endtask : clear_all_a
+
+    // Clear only B in both buffers (NS: preserve cached A across n_tiles).
+    task automatic clear_all_b();
+        clear_b_only(0);
+        clear_b_only(1);
+        buffer_valid[0]  <= 1'b0;
+        buffer_valid[1]  <= 1'b0;
+        buffer_k_base[0] <= 0;
+        buffer_k_base[1] <= 0;
+        buffer_k_span[0] <= 0;
+        buffer_k_span[1] <= 0;
+    endtask : clear_all_b
 
     task automatic clear_all_buffers();
         clear_buffer(0);
@@ -270,18 +308,33 @@ module tiled_gemm_accelerator
         buffer_k_span[1] <= 0;
     endtask : clear_all_buffers
 
-    task automatic start_load(input int unsigned buf,
+    task automatic start_load(input int unsigned ibuf,
                               input int unsigned k_base);
-        clear_buffer(buf);
-        buffer_valid[buf]  <= 1'b0;
-        buffer_k_base[buf] <= k_base;
-        buffer_k_span[buf] <= k_span_at(k_base);
-        load_buf           <= buf;
+        // For WS reuse: B tiles in the buffers are still valid from the
+        // previous m_tile; only clear A so B is preserved.
+        // For NS reuse: A tiles are still valid; only clear B.
+        // Otherwise: full clear.
+        if ((DATAFLOW_MODE == SA_DATAFLOW_WS) && stationary_b_loaded)
+            clear_a_only(ibuf);
+        else if ((DATAFLOW_MODE == SA_DATAFLOW_NS) && stationary_a_loaded)
+            clear_b_only(ibuf);
+        else
+            clear_buffer(ibuf);
+
+        buffer_valid[ibuf]  <= 1'b0;
+        buffer_k_base[ibuf] <= k_base;
+        buffer_k_span[ibuf] <= k_span_at(k_base);
+        load_buf            <= ibuf;
         load_k_base        <= k_base;
         load_r             <= 0;
         load_k             <= 0;
         load_c             <= 0;
-        load_state         <= L_A_REQ;
+
+        // NS reuse: A already in buffer → start directly at B.
+        if ((DATAFLOW_MODE == SA_DATAFLOW_NS) && stationary_a_loaded)
+            load_state <= L_B_REQ;
+        else
+            load_state <= L_A_REQ;
     endtask : start_load
 
     task automatic finish_load();
@@ -323,11 +376,11 @@ module tiled_gemm_accelerator
         end
     endtask : advance_write
 
-    task automatic select_compute_buffer(input int unsigned buf);
-        compute_buf       <= buf;
-        compute_k_base    <= buffer_k_base[buf];
-        compute_k_span    <= buffer_k_span[buf];
-        buffer_valid[buf] <= 1'b0;
+    task automatic select_compute_buffer(input int unsigned ibuf);
+        compute_buf        <= ibuf;
+        compute_k_base     <= buffer_k_base[ibuf];
+        compute_k_span     <= buffer_k_span[ibuf];
+        buffer_valid[ibuf] <= 1'b0;
     endtask : select_compute_buffer
 
     task automatic maybe_start_prefetch(input int unsigned free_buf);
@@ -443,6 +496,8 @@ module tiled_gemm_accelerator
             load_c                <= 0;
             write_r               <= 0;
             write_c               <= 0;
+            stationary_b_loaded   <= 1'b0;
+            stationary_a_loaded   <= 1'b0;
             clear_all_buffers();
         end
 
@@ -472,9 +527,15 @@ module tiled_gemm_accelerator
                 L_A_REQ: begin
                     if (!load_a_in_bounds()) begin
                         if (load_a_last()) begin
-                            load_r     <= 0;
-                            load_k     <= 0;
-                            load_state <= L_B_REQ;
+                            load_r <= 0;
+                            load_k <= 0;
+                            // WS reuse: B is still valid in the buffer.
+                            if ((DATAFLOW_MODE == SA_DATAFLOW_WS) && stationary_b_loaded) begin
+                                load_c     <= 0;
+                                finish_load();
+                            end else begin
+                                load_state <= L_B_REQ;
+                            end
                         end
 
                         else begin
@@ -497,9 +558,16 @@ module tiled_gemm_accelerator
                         tile_a[load_buf][load_r][load_k] <= i_mem_rsp_rdata[I_WORD_SIZE - 1:0];
 
                         if (load_a_last()) begin
-                            load_r     <= 0;
-                            load_k     <= 0;
-                            load_state <= L_B_REQ;
+                            load_r <= 0;
+                            load_k <= 0;
+                            // WS reuse: B is still valid in the buffer;
+                            // skip the B memory read entirely.
+                            if ((DATAFLOW_MODE == SA_DATAFLOW_WS) && stationary_b_loaded) begin
+                                load_c     <= 0;
+                                finish_load();
+                            end else begin
+                                load_state <= L_B_REQ;
+                            end
                         end
 
                         else begin
@@ -593,16 +661,28 @@ module tiled_gemm_accelerator
                             base_a         <= i_base_a;
                             base_b         <= i_base_b;
                             base_c         <= i_base_c;
-                            row_base       <= 0;
-                            col_base       <= 0;
-                            next_k_to_load <= 0;
-                            state          <= S_TILE_BEGIN;
+                            row_base            <= 0;
+                            col_base            <= 0;
+                            next_k_to_load      <= 0;
+                            stationary_b_loaded <= 1'b0;
+                            stationary_a_loaded <= 1'b0;
+                            state               <= S_TILE_BEGIN;
                         end
                     end
                 end
 
                 S_TILE_BEGIN: begin
-                    clear_all_buffers();
+                    // WS reuse: keep B tiles in the ping-pong buffers so the
+                    // load FSM can skip the B memory read for this m_tile.
+                    // NS reuse: keep A tiles; only B will be reloaded.
+                    // OS: always clear everything.
+                    if ((DATAFLOW_MODE == SA_DATAFLOW_WS) && stationary_b_loaded)
+                        clear_all_a();
+                    else if ((DATAFLOW_MODE == SA_DATAFLOW_NS) && stationary_a_loaded)
+                        clear_all_b();
+                    else
+                        clear_all_buffers();
+
                     compute_buf    <= 0;
                     compute_k_base <= 0;
                     compute_k_span <= 0;
@@ -709,19 +789,56 @@ module tiled_gemm_accelerator
                 S_NEXT_TILE: begin
                     o_tile_count <= o_tile_count + 64'd1;
 
-                    if ((col_base + NUM_COLS) < n_dim) begin
-                        col_base <= col_base + NUM_COLS;
-                        state    <= S_TILE_BEGIN;
+                    if (DATAFLOW_MODE == SA_DATAFLOW_WS) begin
+                        // WS: n_tile is the outer loop, m_tile is the inner
+                        // loop.  After the first m_tile, B is cached in the
+                        // ping-pong buffers and all subsequent m_tiles for
+                        // the same n_tile skip the B memory read.
+                        if ((row_base + NUM_ROWS) < m_dim) begin
+                            row_base           <= row_base + NUM_ROWS;
+                            stationary_b_loaded <= 1'b1;   // B still valid
+                            state              <= S_TILE_BEGIN;
+                        end else if ((col_base + NUM_COLS) < n_dim) begin
+                            col_base           <= col_base + NUM_COLS;
+                            row_base           <= 0;
+                            stationary_b_loaded <= 1'b0;   // New n_tile: need fresh B
+                            state              <= S_TILE_BEGIN;
+                        end else begin
+                            state <= S_DONE;
+                        end
                     end
 
-                    else if ((row_base + NUM_ROWS) < m_dim) begin
-                        row_base <= row_base + NUM_ROWS;
-                        col_base <= 0;
-                        state    <= S_TILE_BEGIN;
+                    else if (DATAFLOW_MODE == SA_DATAFLOW_NS) begin
+                        // NS: m_tile is the outer loop, n_tile is the inner
+                        // loop (same traversal as OS).  After the first
+                        // n_tile, A is cached and subsequent n_tiles skip
+                        // the A memory read.
+                        if ((col_base + NUM_COLS) < n_dim) begin
+                            col_base           <= col_base + NUM_COLS;
+                            stationary_a_loaded <= 1'b1;   // A still valid
+                            state              <= S_TILE_BEGIN;
+                        end else if ((row_base + NUM_ROWS) < m_dim) begin
+                            row_base           <= row_base + NUM_ROWS;
+                            col_base           <= 0;
+                            stationary_a_loaded <= 1'b0;   // New m_tile: need fresh A
+                            state              <= S_TILE_BEGIN;
+                        end else begin
+                            state <= S_DONE;
+                        end
                     end
 
                     else begin
-                        state <= S_DONE;
+                        // OS: m_tile outer, n_tile inner (original behaviour).
+                        if ((col_base + NUM_COLS) < n_dim) begin
+                            col_base <= col_base + NUM_COLS;
+                            state    <= S_TILE_BEGIN;
+                        end else if ((row_base + NUM_ROWS) < m_dim) begin
+                            row_base <= row_base + NUM_ROWS;
+                            col_base <= 0;
+                            state    <= S_TILE_BEGIN;
+                        end else begin
+                            state <= S_DONE;
+                        end
                     end
                 end
 

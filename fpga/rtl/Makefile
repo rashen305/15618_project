@@ -39,7 +39,7 @@ test-%:
 check:
 	$(VCS) -o check +incdir+$(SRCDIR) $(TESTDIR)single_pe_test.sv
 
-regress: test-single_pe test-systolic_array test-feeder test-main_memory_model test-tiled_gemm_accelerator test-systolic_gemm_engine
+regress: test-single_pe test-systolic_array_os test-systolic_array_ws test-systolic_array_ns test-feeder test-main_memory_model test-tiled_gemm_accelerator test-systolic_gemm_engine
 
 bench-sa:
 	$(VCS) $(BENCH_PARAMS) -o sa_benchmark_test +incdir+$(SRCDIR) $(TESTDIR)sa_benchmark_test.sv

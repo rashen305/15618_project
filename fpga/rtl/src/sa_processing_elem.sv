@@ -57,33 +57,43 @@ module sa_processing_elem
     logic [I_WORD_SIZE - 1:0] rowData, colData;
     logic [I_WORD_SIZE - 1:0] stationaryWeight;
     logic                     stationaryWeightValid;
+    logic [I_WORD_SIZE - 1:0] stationaryInput;
+    logic                     stationaryInputValid;
+    logic [I_WORD_SIZE - 1:0] multRowData;
     logic [I_WORD_SIZE - 1:0] multColData;
     logic [O_WORD_SIZE - 1:0] multOut;
     logic [O_WORD_SIZE - 1:0] macOut;
     logic [O_WORD_SIZE - 1:0] accumulatorData;
+    logic                     rowActive;
     logic                     compValid;
 
-    // Both modes require both operands to be present to compute.
-    // For WS multi-tile reuse (row-only streaming after B preload) the caller
-    // is expected to keep i_colValid asserted or drive the weight separately;
-    // single-tile GEMM is identical to OS with the fixes below.
-    assign compValid = (i_rowValid & i_colValid);
+    // NS: row data is stationary; col (B) must be present to compute.
+    //     WS/OS: both row and col must be present.
+    assign rowActive  = (DATAFLOW_MODE == SA_DATAFLOW_NS)
+                        ? (i_rowValid | stationaryInputValid)
+                        : i_rowValid;
+    assign compValid  = rowActive & i_colValid;
 
-    // WS: on the cycle i_colData first arrives it has not yet been clocked into
-    //     stationaryWeight, so use the live i_colData directly.  Once the weight
-    //     register is valid and no new col data is present, fall back to it.
-    //     OS: always use the live i_colData.
+    // WS: once the weight register is loaded, fall back to it when no new col
+    //     data arrives.  OS/NS: always use live i_colData.
     assign multColData = (DATAFLOW_MODE == SA_DATAFLOW_WS)
                          ? (i_colValid ? i_colData : stationaryWeight)
                          : i_colData;
 
-    // Latch input data.
+    // NS: once a row value is loaded, reuse it when i_rowValid is low.
+    //     OS/WS: always use live i_rowData.
+    assign multRowData = (DATAFLOW_MODE == SA_DATAFLOW_NS)
+                         ? (i_rowValid ? i_rowData : stationaryInput)
+                         : i_rowData;
+
+    // Latch input data for propagation to neighbouring PEs.
+    // rowReg forwards the effective row value (live or cached in NS mode).
     register #(.WIDTH(I_WORD_SIZE))
         rowReg(.clk,
                .rst_l,
                .clear(1'b0),
                .en(compValid),
-               .regIn(i_rowData),
+               .regIn(multRowData),
                .regOut(rowData)),
         colReg(.clk,
                .rst_l,
@@ -119,18 +129,33 @@ module sa_processing_elem
         if (~rst_l) begin
             stationaryWeight      <= '0;
             stationaryWeightValid <= 1'b0;
+            stationaryInput       <= '0;
+            stationaryInputValid  <= 1'b0;
         end
 
         else if (i_acc_clear) begin
             stationaryWeight      <= '0;
             stationaryWeightValid <= 1'b0;
+            // NS: keep cached A values across acc_clear so that A can be
+            // reused for a subsequent B matrix without re-feeding.
+            if (DATAFLOW_MODE != SA_DATAFLOW_NS) begin
+                stationaryInput      <= '0;
+                stationaryInputValid <= 1'b0;
+            end
         end
 
-        else if ((DATAFLOW_MODE == SA_DATAFLOW_WS) && i_colValid) begin
-            // Update on every arriving column value so that the last-seen
-            // B[k][j] is retained for weight reuse across subsequent A tiles.
-            stationaryWeight      <= i_colData;
-            stationaryWeightValid <= 1'b1;
+        else begin
+            if ((DATAFLOW_MODE == SA_DATAFLOW_WS) && i_colValid) begin
+                stationaryWeight      <= i_colData;
+                stationaryWeightValid <= 1'b1;
+            end
+
+            if ((DATAFLOW_MODE == SA_DATAFLOW_NS) && i_rowValid) begin
+                // Cache the last-seen A[i][k] so it can be reused when
+                // subsequent B columns stream through without new row data.
+                stationaryInput      <= i_rowData;
+                stationaryInputValid <= 1'b1;
+            end
         end
     end
 
@@ -139,7 +164,7 @@ module sa_processing_elem
     // Multiply inputs.
     multiplier #(.I_WIDTH(I_WORD_SIZE),
                  .O_WIDTH(O_WORD_SIZE))
-        macMultiplier(.multIn1(i_rowData),
+        macMultiplier(.multIn1(multRowData),
                       .multIn2(multColData),
                       .multOut);
 

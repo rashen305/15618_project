@@ -12,6 +12,7 @@ parameter int SA_COLS          = 4;
 parameter int MATRIX_WORD_SIZE = 32;
 parameter int SA_DATAFLOW_OS   = 0;
 parameter int SA_DATAFLOW_WS   = 1;
+parameter int SA_DATAFLOW_NS   = 2;
 parameter int SA_WORD_SIZE     = 2 * MATRIX_WORD_SIZE;
 
 `endif // _SA_PARAMS
