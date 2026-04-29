@@ -1,7 +1,6 @@
 /*
-* lib.sv: Contains combinational and sequential components for modularity.
-*
-* Author: Albert Luo (albertlu)
+* lib.sv: Small combinational and sequential building blocks shared by the
+* systolic array modules.
 */
 
 `ifndef _LIB_SV
@@ -9,11 +8,8 @@
 
 `include "sa_params.sv"
 
-/*
-* Register with a **synchronous** reset and clear.
-*/
 module register
-    #(parameter int WIDTH     = MATRIX_WORD_SIZE)
+    #(parameter int WIDTH = MATRIX_WORD_SIZE)
     (input  logic               clk,
      input  logic               rst_l,
      input  logic               clear,
@@ -32,9 +28,6 @@ module register
     end
 endmodule : register
 
-/*
-* Traditional 2-to-1 multiplexer.
-*/
 module mux2to1
     #(parameter int WIDTH = SA_WORD_SIZE)
     (input  logic [WIDTH - 1:0] muxIn0,
@@ -45,21 +38,15 @@ module mux2to1
     assign muxOut = (sel) ? muxIn1 : muxIn0;
 endmodule : mux2to1
 
-/*
-* Full adder without carry-in/out (unnecessary for PEs).
-*/
 module adder
     #(parameter int WIDTH = SA_WORD_SIZE)
     (input  logic [WIDTH - 1:0] adderIn1,
      input  logic [WIDTH - 1:0] adderIn2,
      output logic [WIDTH - 1:0] adderOut);
 
-    assign adderOut = (adderIn1 + adderIn2);
+    assign adderOut = adderIn1 + adderIn2;
 endmodule : adder
 
-/*
-* Combinational multiplier. TODO: Pipeline later for better throughput.
-*/
 module multiplier
     #(parameter int I_WIDTH = MATRIX_WORD_SIZE,
       parameter int O_WIDTH = 2 * I_WIDTH)
@@ -67,6 +54,7 @@ module multiplier
      input  logic [I_WIDTH - 1:0] multIn2,
      output logic [O_WIDTH - 1:0] multOut);
 
-    assign multOut = (multIn1 * multIn2);
+    assign multOut = multIn1 * multIn2;
 endmodule : multiplier
+
 `endif // _LIB_SV

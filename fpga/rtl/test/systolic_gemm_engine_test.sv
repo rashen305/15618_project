@@ -1,54 +1,44 @@
 /*
-* sa_benchmark_test.sv: Parameterized FPGA-side benchmark harness. It runs the
-* memory-backed tiled GEMM controller, verifies the result, and prints a CSV row
-* with cycle, memory, and utilization metrics suitable for roofline analysis.
+* systolic_gemm_engine_test.sv: Verifies that the multi-shape engine can run
+* several differently dimensioned systolic-array slots against the same memory
+* model and produce identical GEMM results.
 */
 
 `timescale 1ns/1ns
 
 `include "main_memory_model.sv"
-`include "tiled_gemm_accelerator.sv"
+`include "systolic_gemm_engine.sv"
 
-module sa_benchmark_test #(
-    parameter int I_WORD_SIZE       = 8,
-    parameter int O_WORD_SIZE       = 32,
-    parameter int NUM_ROWS          = 4,
-    parameter int NUM_COLS          = 4,
-    parameter int K_TILE            = 8,
-    parameter int M_DIM             = 8,
-    parameter int N_DIM             = 8,
-    parameter int K_DIM             = 8,
-    parameter int VALUE_MAX         = 9,
-    parameter int ADDR_WIDTH        = 24,
-    parameter int MEM_DATA_WIDTH    = 32,
-    parameter int DEPTH_WORDS       = 1 << 16,
-    parameter int READ_LATENCY      = 40,
-    parameter int WRITE_LATENCY     = 20,
-    parameter int READ_ACCEPT_GAP   = 0,
-    parameter int WRITE_ACCEPT_GAP  = 0,
-    parameter int BANKS             = 4,
-    parameter int ROW_WORDS         = 1024,
-    parameter int ROW_HIT_LATENCY   = 12,
-    parameter int ROW_MISS_PENALTY  = 28,
-    parameter int CLOCK_MHZ         = 100,
-    parameter bit ENABLE_DOUBLE_BUFFER = 1'b1
-)();
-    localparam int DIM_WIDTH   = 32;
-    localparam int MEM_BYTES   = MEM_DATA_WIDTH / 8;
-    localparam int A_BASE_WORD = 0;
-    localparam int B_BASE_WORD = A_BASE_WORD + (M_DIM * K_DIM) + 128;
-    localparam int C_BASE_WORD = B_BASE_WORD + (K_DIM * N_DIM) + 128;
+module systolic_gemm_engine_test();
+    localparam int I_WORD_SIZE    = 8;
+    localparam int O_WORD_SIZE    = 32;
+    localparam int DIM_WIDTH      = 16;
+    localparam int ADDR_WIDTH     = 18;
+    localparam int MEM_DATA_WIDTH = 32;
+    localparam int MEM_BYTES      = MEM_DATA_WIDTH / 8;
+    localparam int DEPTH_WORDS    = 4096;
+
+    localparam int M_DIM          = 5;
+    localparam int N_DIM          = 6;
+    localparam int K_DIM          = 7;
+    localparam int A_BASE_WORD    = 0;
+    localparam int B_BASE_WORD    = 512;
+    localparam int C0_BASE_WORD   = 1024;
+    localparam int C1_BASE_WORD   = 1280;
+    localparam int C2_BASE_WORD   = 1536;
 
     logic clk;
     logic rst_l;
     logic start;
+    logic [1:0] array_select;
+    logic [ADDR_WIDTH - 1:0] base_c;
 
     logic mem_req_valid;
     logic mem_req_ready;
     logic mem_req_write;
     logic [ADDR_WIDTH - 1:0] mem_req_addr;
     logic [MEM_DATA_WIDTH - 1:0] mem_req_wdata;
-    logic [(MEM_DATA_WIDTH / 8) - 1:0] mem_req_wstrb;
+    logic [MEM_BYTES - 1:0] mem_req_wstrb;
     logic mem_rsp_valid;
     logic mem_rsp_ready;
     logic mem_rsp_write;
@@ -58,15 +48,17 @@ module sa_benchmark_test #(
     logic busy;
     logic done;
     logic error;
+    logic [1:0] active_array;
     logic [63:0] cycles;
     logic [63:0] compute_cycles;
     logic [63:0] memory_stall_cycles;
     logic [63:0] prefetch_cycles;
     logic [63:0] compute_wait_cycles;
-    logic [63:0] accel_reads;
-    logic [63:0] accel_writes;
+    logic [63:0] read_reqs;
+    logic [63:0] write_reqs;
     logic [63:0] loaded_tile_count;
     logic [63:0] tile_count;
+
     logic [63:0] mem_cycles;
     logic [63:0] mem_reads;
     logic [63:0] mem_writes;
@@ -83,16 +75,14 @@ module sa_benchmark_test #(
         .DATA_WIDTH(MEM_DATA_WIDTH),
         .DEPTH_WORDS(DEPTH_WORDS),
         .MAX_OUTSTANDING(16),
-        .READ_LATENCY(READ_LATENCY),
-        .WRITE_LATENCY(WRITE_LATENCY),
-        .READ_ACCEPT_GAP(READ_ACCEPT_GAP),
-        .WRITE_ACCEPT_GAP(WRITE_ACCEPT_GAP),
-        .BANKS(BANKS),
-        .ROW_WORDS(ROW_WORDS),
-        .ROW_HIT_LATENCY(ROW_HIT_LATENCY),
-        .ROW_MISS_PENALTY(ROW_MISS_PENALTY),
+        .READ_LATENCY(8),
+        .WRITE_LATENCY(4),
+        .BANKS(4),
+        .ROW_WORDS(64),
+        .ROW_HIT_LATENCY(3),
+        .ROW_MISS_PENALTY(10),
         .MODEL_ROW_BUFFER(1'b1)
-    ) memModel (
+    ) mem (
         .clk,
         .rst_l,
         .i_req_valid(mem_req_valid),
@@ -114,26 +104,33 @@ module sa_benchmark_test #(
         .o_stall_req_count(mem_stalls)
     );
 
-    tiled_gemm_accelerator #(
+    systolic_gemm_engine #(
         .I_WORD_SIZE(I_WORD_SIZE),
         .O_WORD_SIZE(O_WORD_SIZE),
-        .NUM_ROWS(NUM_ROWS),
-        .NUM_COLS(NUM_COLS),
-        .K_TILE(K_TILE),
         .DIM_WIDTH(DIM_WIDTH),
         .ADDR_WIDTH(ADDR_WIDTH),
         .MEM_DATA_WIDTH(MEM_DATA_WIDTH),
-        .ENABLE_DOUBLE_BUFFER(ENABLE_DOUBLE_BUFFER)
-    ) dut (
+        .ENABLE_DOUBLE_BUFFER(1'b1),
+        .SLOT0_ROWS(2),
+        .SLOT0_COLS(2),
+        .SLOT0_K_TILE(3),
+        .SLOT1_ROWS(3),
+        .SLOT1_COLS(4),
+        .SLOT1_K_TILE(4),
+        .SLOT2_ROWS(4),
+        .SLOT2_COLS(3),
+        .SLOT2_K_TILE(5)
+    ) engine (
         .clk,
         .rst_l,
         .i_start(start),
+        .i_array_select(array_select),
         .i_m(DIM_WIDTH'(M_DIM)),
         .i_n(DIM_WIDTH'(N_DIM)),
         .i_k(DIM_WIDTH'(K_DIM)),
         .i_base_a(ADDR_WIDTH'(A_BASE_WORD * MEM_BYTES)),
         .i_base_b(ADDR_WIDTH'(B_BASE_WORD * MEM_BYTES)),
-        .i_base_c(ADDR_WIDTH'(C_BASE_WORD * MEM_BYTES)),
+        .i_base_c(base_c),
         .i_stride_a(DIM_WIDTH'(K_DIM)),
         .i_stride_b(DIM_WIDTH'(N_DIM)),
         .i_stride_c(DIM_WIDTH'(N_DIM)),
@@ -151,13 +148,14 @@ module sa_benchmark_test #(
         .o_busy(busy),
         .o_done(done),
         .o_error(error),
+        .o_active_array(active_array),
         .o_cycles(cycles),
         .o_compute_cycles(compute_cycles),
         .o_memory_stall_cycles(memory_stall_cycles),
         .o_prefetch_cycles(prefetch_cycles),
         .o_compute_wait_cycles(compute_wait_cycles),
-        .o_read_reqs(accel_reads),
-        .o_write_reqs(accel_writes),
+        .o_read_reqs(read_reqs),
+        .o_write_reqs(write_reqs),
         .o_loaded_tile_count(loaded_tile_count),
         .o_tile_count(tile_count)
     );
@@ -170,20 +168,20 @@ module sa_benchmark_test #(
     task automatic initialize_problem();
         logic [O_WORD_SIZE - 1:0] sum;
 
-        memModel.clear_memory();
+        mem.clear_memory();
 
         for (int r = 0; r < M_DIM; r++) begin
             for (int kk = 0; kk < K_DIM; kk++) begin
-                a_matrix[r][kk] = I_WORD_SIZE'(((r * 13) + (kk * 7) + 3) % (VALUE_MAX + 1));
-                memModel.write_word(A_BASE_WORD + (r * K_DIM) + kk,
+                a_matrix[r][kk] = I_WORD_SIZE'(((r + 2) * (kk + 1)) % 23);
+                mem.write_word(A_BASE_WORD + (r * K_DIM) + kk,
                                MEM_DATA_WIDTH'(a_matrix[r][kk]));
             end
         end
 
         for (int kk = 0; kk < K_DIM; kk++) begin
             for (int c = 0; c < N_DIM; c++) begin
-                b_matrix[kk][c] = I_WORD_SIZE'(((kk * 5) + (c * 11) + 1) % (VALUE_MAX + 1));
-                memModel.write_word(B_BASE_WORD + (kk * N_DIM) + c,
+                b_matrix[kk][c] = I_WORD_SIZE'(((kk + 4) * (c + 3)) % 29);
+                mem.write_word(B_BASE_WORD + (kk * N_DIM) + c,
                                MEM_DATA_WIDTH'(b_matrix[kk][c]));
             end
         end
@@ -199,22 +197,19 @@ module sa_benchmark_test #(
         end
     endtask : initialize_problem
 
-    initial begin
+    task automatic run_slot(input logic [1:0] slot,
+                            input int unsigned slot_rows,
+                            input int unsigned slot_cols,
+                            input int unsigned slot_ktile,
+                            input int unsigned c_base_word);
+        logic [MEM_DATA_WIDTH - 1:0] got;
         longint unsigned macs;
         longint unsigned ops;
-        longint unsigned modeled_bytes;
         real ops_per_cycle;
-        real projected_gflops;
         real pe_util;
-        real arithmetic_intensity;
-        logic [MEM_DATA_WIDTH - 1:0] got;
 
-        rst_l <= 1'b0;
-        start <= 1'b0;
-        repeat (4) @(posedge clk);
-        rst_l <= 1'b1;
-        initialize_problem();
-
+        array_select <= slot;
+        base_c       <= ADDR_WIDTH'(c_base_word * MEM_BYTES);
         @(posedge clk);
         start <= 1'b1;
         @(posedge clk);
@@ -222,8 +217,8 @@ module sa_benchmark_test #(
 
         fork
             begin
-                repeat (1000000) @(posedge clk);
-                $fatal(1, "Timed out waiting for sa_benchmark_test.");
+                repeat (300000) @(posedge clk);
+                $fatal(1, "Timed out waiting for engine slot %0d.", slot);
             end
 
             begin
@@ -232,38 +227,50 @@ module sa_benchmark_test #(
         join_any
         disable fork;
 
-        assert(!error) else $fatal(1, "Accelerator reported an error.");
+        assert(!error) else $fatal(1, "Engine slot %0d reported an error.", slot);
 
         for (int r = 0; r < M_DIM; r++) begin
             for (int c = 0; c < N_DIM; c++) begin
-                got = memModel.read_word(C_BASE_WORD + (r * N_DIM) + c);
+                got = mem.read_word(c_base_word + (r * N_DIM) + c);
                 assert(got[O_WORD_SIZE - 1:0] == expected_c[r][c])
-                    else $fatal(1, "C[%0d][%0d] expected %0d, got %0d.",
-                                r, c, expected_c[r][c], got[O_WORD_SIZE - 1:0]);
+                    else $fatal(1, "slot %0d C[%0d][%0d] expected %0d, got %0d.",
+                                slot, r, c, expected_c[r][c], got[O_WORD_SIZE - 1:0]);
             end
         end
 
         macs = longint'(M_DIM) * longint'(N_DIM) * longint'(K_DIM);
         ops = 2 * macs;
-        modeled_bytes = mem_bytes_read + mem_bytes_written;
         ops_per_cycle = (cycles == 0) ? 0.0 : real'(ops) / real'(cycles);
-        projected_gflops = ops_per_cycle * real'(CLOCK_MHZ) / 1000.0;
         pe_util = (compute_cycles == 0) ? 0.0 :
-                  real'(macs) / (real'(NUM_ROWS * NUM_COLS) * real'(compute_cycles));
-        arithmetic_intensity = (modeled_bytes == 0) ? 0.0 :
-                               real'(ops) / real'(modeled_bytes);
+                  real'(macs) / (real'(slot_rows * slot_cols) * real'(compute_cycles));
 
-        $display("fpga_bench_header,rows,cols,k_tile,m,n,k,double_buffer,mem_read_lat,mem_write_lat,read_gap,write_gap,banks,row_words,row_hit,row_miss,clock_mhz,cycles,compute_cycles,mem_stall_cycles,prefetch_cycles,compute_wait_cycles,reads,writes,bytes_read,bytes_written,loaded_k_tiles,output_tiles,ops_per_cycle,projected_gflops,pe_util,arithmetic_intensity");
-        $display("fpga_bench,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%.6f,%.6f,%.6f,%.6f",
-                 NUM_ROWS, NUM_COLS, K_TILE, M_DIM, N_DIM, K_DIM,
-                 ENABLE_DOUBLE_BUFFER,
-                 READ_LATENCY, WRITE_LATENCY, READ_ACCEPT_GAP, WRITE_ACCEPT_GAP,
-                 BANKS, ROW_WORDS, ROW_HIT_LATENCY, ROW_MISS_PENALTY, CLOCK_MHZ,
-                 cycles, compute_cycles, memory_stall_cycles, prefetch_cycles,
-                 compute_wait_cycles, accel_reads, accel_writes, mem_bytes_read,
-                 mem_bytes_written, loaded_tile_count, tile_count,
-                 ops_per_cycle, projected_gflops, pe_util, arithmetic_intensity);
+        $display("engine_bench,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%.6f,%.6f",
+                 slot, slot_rows, slot_cols, slot_ktile, M_DIM, N_DIM, K_DIM,
+                 cycles, compute_cycles, prefetch_cycles, compute_wait_cycles,
+                 read_reqs, write_reqs, ops_per_cycle, pe_util);
+    endtask : run_slot
+
+    initial begin
+        rst_l        <= 1'b0;
+        start        <= 1'b0;
+        array_select <= 2'd0;
+        base_c       <= ADDR_WIDTH'(C0_BASE_WORD * MEM_BYTES);
+
+        repeat (4) @(posedge clk);
+        rst_l <= 1'b1;
+        initialize_problem();
+
+        $display("engine_bench_header,slot,rows,cols,k_tile,m,n,k,cycles,compute_cycles,prefetch_cycles,compute_wait_cycles,reads,writes,ops_per_cycle,pe_util");
+        run_slot(2'd0, 2, 2, 3, C0_BASE_WORD);
+        run_slot(2'd1, 3, 4, 4, C1_BASE_WORD);
+        run_slot(2'd2, 4, 3, 5, C2_BASE_WORD);
+
+        $display("\n");
+        $display("***************************************************************************");
+        $display("                     SYSTOLIC GEMM ENGINE TESTS PASSED                     ");
+        $display("***************************************************************************");
+        $display("\n");
 
         $finish;
     end
-endmodule : sa_benchmark_test
+endmodule : systolic_gemm_engine_test

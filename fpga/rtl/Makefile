@@ -3,17 +3,18 @@ SRCDIR 	   := src/
 TESTDIR    := test/
 SRC	   := $(SRCDIR)*.sv
 
-ROWS       ?= 64
-COLS       ?= 64
-KTILE      ?= 16 
+ROWS       ?= 4
+COLS       ?= 4
+KTILE      ?= 8
 M          ?= 8
 N          ?= 8
 K          ?= 8
 READ_LAT   ?= 40
 WRITE_LAT  ?= 20
-READ_GAP   ?= 1 
-WRITE_GAP  ?= 1 
+READ_GAP   ?= 0
+WRITE_GAP  ?= 0
 CLOCK_MHZ  ?= 100
+DBUF       ?= 1
 
 BENCH_PARAMS := \
 	-pvalue+sa_benchmark_test.NUM_ROWS=$(ROWS) \
@@ -26,20 +27,27 @@ BENCH_PARAMS := \
 	-pvalue+sa_benchmark_test.WRITE_LATENCY=$(WRITE_LAT) \
 	-pvalue+sa_benchmark_test.READ_ACCEPT_GAP=$(READ_GAP) \
 	-pvalue+sa_benchmark_test.WRITE_ACCEPT_GAP=$(WRITE_GAP) \
-	-pvalue+sa_benchmark_test.CLOCK_MHZ=$(CLOCK_MHZ)
+	-pvalue+sa_benchmark_test.CLOCK_MHZ=$(CLOCK_MHZ) \
+	-pvalue+sa_benchmark_test.ENABLE_DOUBLE_BUFFER=$(DBUF)
 
-.PHONY: clean regress bench-sa
+.PHONY: clean regress bench-sa bench-engine
 
 test-%:
-	$(VCS) -o $*_test +incdir+$(SRCDIR) $(TESTDIR)$*_test.sv; ./$*_test
+	$(VCS) -o $*_test +incdir+$(SRCDIR) $(TESTDIR)$*_test.sv
+	./$*_test
 
 check:
-	$(VCS) -o check +incdir+$(SRCDIR) $(TESTDIR)single_pe_test.sv; rm -rf check*
+	$(VCS) -o check +incdir+$(SRCDIR) $(TESTDIR)single_pe_test.sv
 
-regress: test-single_pe test-systolic_array test-feeder test-main_memory_model test-tiled_gemm_accelerator
+regress: test-single_pe test-systolic_array test-feeder test-main_memory_model test-tiled_gemm_accelerator test-systolic_gemm_engine
 
 bench-sa:
-	$(VCS) $(BENCH_PARAMS) -o sa_benchmark_test +incdir+$(SRCDIR) $(TESTDIR)sa_benchmark_test.sv; ./sa_benchmark_test
+	$(VCS) $(BENCH_PARAMS) -o sa_benchmark_test +incdir+$(SRCDIR) $(TESTDIR)sa_benchmark_test.sv
+	./sa_benchmark_test
+
+bench-engine:
+	$(VCS) -o systolic_gemm_engine_test +incdir+$(SRCDIR) $(TESTDIR)systolic_gemm_engine_test.sv
+	./systolic_gemm_engine_test
 
 clean:
 	rm -rf csrc *.daidir *_test randtest ucli.key simv* DVEfiles *vpd .restartSimSession* .*dve_rebuild* check*

@@ -1,7 +1,8 @@
 /*
 * tiled_gemm_accelerator.sv: Memory-backed GEMM controller around the systolic
-* array. The controller supports M/N output tiling and K tiling, reusing the PE
-* accumulators across K tiles before writing C back to memory.
+* array. The controller supports M/N output tiling, K tiling, and optional
+* double buffering so the next K tile can be prefetched while the array drains
+* the current K tile.
 */
 
 `ifndef _TILED_GEMM_ACCELERATOR
@@ -12,14 +13,15 @@
 `include "systolic_array.sv"
 
 module tiled_gemm_accelerator
-    #(parameter int I_WORD_SIZE    = MATRIX_WORD_SIZE,
-      parameter int O_WORD_SIZE    = 2 * I_WORD_SIZE,
-      parameter int NUM_ROWS       = SA_ROWS,
-      parameter int NUM_COLS       = SA_COLS,
-      parameter int K_TILE         = NUM_COLS,
-      parameter int DIM_WIDTH      = 16,
-      parameter int ADDR_WIDTH     = 32,
-      parameter int MEM_DATA_WIDTH = O_WORD_SIZE)
+    #(parameter int I_WORD_SIZE          = MATRIX_WORD_SIZE,
+      parameter int O_WORD_SIZE          = 2 * I_WORD_SIZE,
+      parameter int NUM_ROWS             = SA_ROWS,
+      parameter int NUM_COLS             = SA_COLS,
+      parameter int K_TILE               = NUM_COLS,
+      parameter int DIM_WIDTH            = 16,
+      parameter int ADDR_WIDTH           = 32,
+      parameter int MEM_DATA_WIDTH       = O_WORD_SIZE,
+      parameter bit ENABLE_DOUBLE_BUFFER = 1'b1)
     (input  logic                         clk,
      input  logic                         rst_l,
 
@@ -53,24 +55,23 @@ module tiled_gemm_accelerator
      output logic [63:0]                  o_cycles,
      output logic [63:0]                  o_compute_cycles,
      output logic [63:0]                  o_memory_stall_cycles,
+     output logic [63:0]                  o_prefetch_cycles,
+     output logic [63:0]                  o_compute_wait_cycles,
      output logic [63:0]                  o_read_reqs,
      output logic [63:0]                  o_write_reqs,
+     output logic [63:0]                  o_loaded_tile_count,
      output logic [63:0]                  o_tile_count);
 
     localparam int MEM_BYTES = MEM_DATA_WIDTH / 8;
     localparam int K_W       = (K_TILE <= 1) ? 1 : $clog2(K_TILE + 1);
 
-    typedef enum logic [4:0] {
+    typedef enum logic [3:0] {
         S_IDLE,
-        S_CLEAR_ARRAY,
-        S_CLEAR_TILES,
-        S_LOAD_A_REQ,
-        S_LOAD_A_WAIT,
-        S_LOAD_B_REQ,
-        S_LOAD_B_WAIT,
-        S_START_FEEDER,
-        S_RUN_ARRAY,
-        S_NEXT_K,
+        S_TILE_BEGIN,
+        S_WAIT_FIRST_LOAD,
+        S_START_COMPUTE,
+        S_RUN,
+        S_WAIT_BUFFER,
         S_WRITE_REQ,
         S_WRITE_WAIT,
         S_NEXT_TILE,
@@ -78,10 +79,25 @@ module tiled_gemm_accelerator
         S_ERROR
     } state_t;
 
-    state_t state;
+    typedef enum logic [2:0] {
+        L_IDLE,
+        L_A_REQ,
+        L_A_WAIT,
+        L_B_REQ,
+        L_B_WAIT
+    } load_state_t;
 
-    logic [I_WORD_SIZE - 1:0] tile_a [0:NUM_ROWS - 1][0:K_TILE - 1];
-    logic [I_WORD_SIZE - 1:0] tile_b [0:K_TILE - 1][0:NUM_COLS - 1];
+    state_t      state;
+    load_state_t load_state;
+
+    logic [I_WORD_SIZE - 1:0] tile_a [0:1][0:NUM_ROWS - 1][0:K_TILE - 1];
+    logic [I_WORD_SIZE - 1:0] tile_b [0:1][0:K_TILE - 1][0:NUM_COLS - 1];
+    logic [I_WORD_SIZE - 1:0] compute_tile_a [0:NUM_ROWS - 1][0:K_TILE - 1];
+    logic [I_WORD_SIZE - 1:0] compute_tile_b [0:K_TILE - 1][0:NUM_COLS - 1];
+
+    logic                     buffer_valid [0:1];
+    int unsigned              buffer_k_base [0:1];
+    int unsigned              buffer_k_span [0:1];
 
     logic [NUM_ROWS - 1:0]    rows_valid;
     logic [NUM_COLS - 1:0]    cols_valid;
@@ -106,7 +122,13 @@ module tiled_gemm_accelerator
 
     int unsigned              row_base;
     int unsigned              col_base;
-    int unsigned              k_base;
+    int unsigned              next_k_to_load;
+    int unsigned              compute_buf;
+    int unsigned              compute_k_base;
+    int unsigned              compute_k_span;
+
+    int unsigned              load_buf;
+    int unsigned              load_k_base;
     int unsigned              load_r;
     int unsigned              load_k;
     int unsigned              load_c;
@@ -141,8 +163,8 @@ module tiled_gemm_accelerator
         .rst_l,
         .i_start(feeder_start),
         .i_k_dim(feeder_k_dim),
-        .i_matrixA(tile_a),
-        .i_matrixB(tile_b),
+        .i_matrixA(compute_tile_a),
+        .i_matrixB(compute_tile_b),
         .o_rowsValid(rows_valid),
         .o_colsValid(cols_valid),
         .o_cellData(feeder_cell_data),
@@ -167,22 +189,26 @@ module tiled_gemm_accelerator
         .o_compDone(array_done)
     );
 
-    function automatic int unsigned current_k_span();
+    function automatic int unsigned k_span_at(input int unsigned k_base);
         int unsigned remaining;
 
         remaining = k_dim - k_base;
-        current_k_span = (remaining < K_TILE) ? remaining : K_TILE;
-    endfunction : current_k_span
+        k_span_at = (remaining < K_TILE) ? remaining : K_TILE;
+    endfunction : k_span_at
 
-    function automatic bit a_in_bounds();
-        a_in_bounds = ((row_base + load_r) < m_dim) &&
-                      ((k_base + load_k) < k_dim);
-    endfunction : a_in_bounds
+    function automatic int unsigned other_buf(input int unsigned buf);
+        other_buf = (buf == 0) ? 1 : 0;
+    endfunction : other_buf
 
-    function automatic bit b_in_bounds();
-        b_in_bounds = ((k_base + load_k) < k_dim) &&
-                      ((col_base + load_c) < n_dim);
-    endfunction : b_in_bounds
+    function automatic bit load_a_in_bounds();
+        load_a_in_bounds = ((row_base + load_r) < m_dim) &&
+                           ((load_k_base + load_k) < k_dim);
+    endfunction : load_a_in_bounds
+
+    function automatic bit load_b_in_bounds();
+        load_b_in_bounds = ((load_k_base + load_k) < k_dim) &&
+                           ((col_base + load_c) < n_dim);
+    endfunction : load_b_in_bounds
 
     function automatic bit c_in_bounds();
         c_in_bounds = ((row_base + write_r) < m_dim) &&
@@ -201,6 +227,10 @@ module tiled_gemm_accelerator
         write_last = (write_r == (NUM_ROWS - 1)) && (write_c == (NUM_COLS - 1));
     endfunction : write_last
 
+    function automatic bit compute_is_final_k();
+        compute_is_final_k = ((compute_k_base + compute_k_span) >= k_dim);
+    endfunction : compute_is_final_k
+
     function automatic logic [ADDR_WIDTH - 1:0] element_addr(
         input logic [ADDR_WIDTH - 1:0] base,
         input int unsigned row,
@@ -215,19 +245,50 @@ module tiled_gemm_accelerator
         element_addr = ADDR_WIDTH'(offset_bytes);
     endfunction : element_addr
 
-    task automatic clear_tiles();
+    task automatic clear_buffer(input int unsigned buf);
         for (int r = 0; r < NUM_ROWS; r++) begin
             for (int kk = 0; kk < K_TILE; kk++) begin
-                tile_a[r][kk] <= '0;
+                tile_a[buf][r][kk] <= '0;
             end
         end
 
         for (int kk = 0; kk < K_TILE; kk++) begin
             for (int c = 0; c < NUM_COLS; c++) begin
-                tile_b[kk][c] <= '0;
+                tile_b[buf][kk][c] <= '0;
             end
         end
-    endtask : clear_tiles
+    endtask : clear_buffer
+
+    task automatic clear_all_buffers();
+        clear_buffer(0);
+        clear_buffer(1);
+        buffer_valid[0]  <= 1'b0;
+        buffer_valid[1]  <= 1'b0;
+        buffer_k_base[0] <= 0;
+        buffer_k_base[1] <= 0;
+        buffer_k_span[0] <= 0;
+        buffer_k_span[1] <= 0;
+    endtask : clear_all_buffers
+
+    task automatic start_load(input int unsigned buf,
+                              input int unsigned k_base);
+        clear_buffer(buf);
+        buffer_valid[buf]  <= 1'b0;
+        buffer_k_base[buf] <= k_base;
+        buffer_k_span[buf] <= k_span_at(k_base);
+        load_buf           <= buf;
+        load_k_base        <= k_base;
+        load_r             <= 0;
+        load_k             <= 0;
+        load_c             <= 0;
+        load_state         <= L_A_REQ;
+    endtask : start_load
+
+    task automatic finish_load();
+        buffer_valid[load_buf] <= 1'b1;
+        load_state             <= L_IDLE;
+        o_loaded_tile_count    <= o_loaded_tile_count + 64'd1;
+    endtask : finish_load
 
     task automatic advance_a_load();
         if (load_k == (K_TILE - 1)) begin
@@ -262,69 +323,103 @@ module tiled_gemm_accelerator
         end
     endtask : advance_write
 
+    task automatic select_compute_buffer(input int unsigned buf);
+        compute_buf       <= buf;
+        compute_k_base    <= buffer_k_base[buf];
+        compute_k_span    <= buffer_k_span[buf];
+        buffer_valid[buf] <= 1'b0;
+    endtask : select_compute_buffer
+
+    task automatic maybe_start_prefetch(input int unsigned free_buf);
+        if (ENABLE_DOUBLE_BUFFER && (load_state == L_IDLE) && (next_k_to_load < k_dim)) begin
+            start_load(free_buf, next_k_to_load);
+            next_k_to_load <= next_k_to_load + K_TILE;
+        end
+    endtask : maybe_start_prefetch
+
     always_comb begin
-        feeder_start      = (state == S_START_FEEDER);
-        array_clear       = (state == S_CLEAR_ARRAY);
-        feeder_k_dim      = K_W'(current_k_span());
+        for (int r = 0; r < NUM_ROWS; r++) begin
+            for (int kk = 0; kk < K_TILE; kk++) begin
+                compute_tile_a[r][kk] = tile_a[compute_buf][r][kk];
+            end
+        end
+
+        for (int kk = 0; kk < K_TILE; kk++) begin
+            for (int c = 0; c < NUM_COLS; c++) begin
+                compute_tile_b[kk][c] = tile_b[compute_buf][kk][c];
+            end
+        end
+    end
+
+    always_comb begin
+        feeder_start      = (state == S_START_COMPUTE);
+        array_clear       = (state == S_TILE_BEGIN);
+        feeder_k_dim      = K_W'(compute_k_span);
         o_busy            = (state != S_IDLE);
         o_mem_req_valid   = 1'b0;
         o_mem_req_write   = 1'b0;
         o_mem_req_addr    = '0;
         o_mem_req_wdata   = '0;
         o_mem_req_wstrb   = '0;
-        o_mem_rsp_ready   = (state == S_LOAD_A_WAIT) ||
-                            (state == S_LOAD_B_WAIT) ||
+        o_mem_rsp_ready   = (load_state == L_A_WAIT) ||
+                            (load_state == L_B_WAIT) ||
                             (state == S_WRITE_WAIT);
 
-        unique case (state)
-            S_LOAD_A_REQ: begin
-                if (a_in_bounds()) begin
-                    o_mem_req_valid = 1'b1;
-                    o_mem_req_addr  = element_addr(base_a,
-                                                   row_base + load_r,
-                                                   k_base + load_k,
-                                                   stride_a);
-                end
+        if (state == S_WRITE_REQ) begin
+            if (c_in_bounds()) begin
+                o_mem_req_valid = 1'b1;
+                o_mem_req_write = 1'b1;
+                o_mem_req_addr  = element_addr(base_c,
+                                               row_base + write_r,
+                                               col_base + write_c,
+                                               stride_c);
+                o_mem_req_wdata[O_WORD_SIZE - 1:0] = array_cell_data[write_r][write_c];
+                o_mem_req_wstrb = '1;
             end
+        end
 
-            S_LOAD_B_REQ: begin
-                if (b_in_bounds()) begin
-                    o_mem_req_valid = 1'b1;
-                    o_mem_req_addr  = element_addr(base_b,
-                                                   k_base + load_k,
-                                                   col_base + load_c,
-                                                   stride_b);
+        else begin
+            unique case (load_state)
+                L_A_REQ: begin
+                    if (load_a_in_bounds()) begin
+                        o_mem_req_valid = 1'b1;
+                        o_mem_req_addr  = element_addr(base_a,
+                                                       row_base + load_r,
+                                                       load_k_base + load_k,
+                                                       stride_a);
+                    end
                 end
-            end
 
-            S_WRITE_REQ: begin
-                if (c_in_bounds()) begin
-                    o_mem_req_valid = 1'b1;
-                    o_mem_req_write = 1'b1;
-                    o_mem_req_addr  = element_addr(base_c,
-                                                   row_base + write_r,
-                                                   col_base + write_c,
-                                                   stride_c);
-                    o_mem_req_wdata[O_WORD_SIZE - 1:0] = array_cell_data[write_r][write_c];
-                    o_mem_req_wstrb = '1;
+                L_B_REQ: begin
+                    if (load_b_in_bounds()) begin
+                        o_mem_req_valid = 1'b1;
+                        o_mem_req_addr  = element_addr(base_b,
+                                                       load_k_base + load_k,
+                                                       col_base + load_c,
+                                                       stride_b);
+                    end
                 end
-            end
 
-            default: begin
-            end
-        endcase
+                default: begin
+                end
+            endcase
+        end
     end
 
     always_ff @(posedge clk, negedge rst_l) begin
         if (~rst_l) begin
             state                 <= S_IDLE;
+            load_state            <= L_IDLE;
             o_done                <= 1'b0;
             o_error               <= 1'b0;
             o_cycles              <= '0;
             o_compute_cycles      <= '0;
             o_memory_stall_cycles <= '0;
+            o_prefetch_cycles     <= '0;
+            o_compute_wait_cycles <= '0;
             o_read_reqs           <= '0;
             o_write_reqs          <= '0;
+            o_loaded_tile_count   <= '0;
             o_tile_count          <= '0;
             m_dim                 <= 0;
             n_dim                 <= 0;
@@ -337,13 +432,18 @@ module tiled_gemm_accelerator
             base_c                <= '0;
             row_base              <= 0;
             col_base              <= 0;
-            k_base                <= 0;
+            next_k_to_load        <= 0;
+            compute_buf           <= 0;
+            compute_k_base        <= 0;
+            compute_k_span        <= 0;
+            load_buf              <= 0;
+            load_k_base           <= 0;
             load_r                <= 0;
             load_k                <= 0;
             load_c                <= 0;
             write_r               <= 0;
             write_c               <= 0;
-            clear_tiles();
+            clear_all_buffers();
         end
 
         else begin
@@ -353,9 +453,116 @@ module tiled_gemm_accelerator
                 o_cycles <= o_cycles + 64'd1;
             end
 
-            if (state == S_RUN_ARRAY) begin
+            if (state == S_RUN) begin
                 o_compute_cycles <= o_compute_cycles + 64'd1;
             end
+
+            if ((state == S_RUN) && (load_state != L_IDLE)) begin
+                o_prefetch_cycles <= o_prefetch_cycles + 64'd1;
+            end
+
+            if (state == S_WAIT_BUFFER) begin
+                o_compute_wait_cycles <= o_compute_wait_cycles + 64'd1;
+            end
+
+            unique case (load_state)
+                L_IDLE: begin
+                end
+
+                L_A_REQ: begin
+                    if (!load_a_in_bounds()) begin
+                        if (load_a_last()) begin
+                            load_r     <= 0;
+                            load_k     <= 0;
+                            load_state <= L_B_REQ;
+                        end
+
+                        else begin
+                            advance_a_load();
+                        end
+                    end
+
+                    else if (i_mem_req_ready) begin
+                        o_read_reqs <= o_read_reqs + 64'd1;
+                        load_state  <= L_A_WAIT;
+                    end
+
+                    else begin
+                        o_memory_stall_cycles <= o_memory_stall_cycles + 64'd1;
+                    end
+                end
+
+                L_A_WAIT: begin
+                    if (i_mem_rsp_valid && !i_mem_rsp_write) begin
+                        tile_a[load_buf][load_r][load_k] <= i_mem_rsp_rdata[I_WORD_SIZE - 1:0];
+
+                        if (load_a_last()) begin
+                            load_r     <= 0;
+                            load_k     <= 0;
+                            load_state <= L_B_REQ;
+                        end
+
+                        else begin
+                            advance_a_load();
+                            load_state <= L_A_REQ;
+                        end
+                    end
+
+                    else begin
+                        o_memory_stall_cycles <= o_memory_stall_cycles + 64'd1;
+                    end
+                end
+
+                L_B_REQ: begin
+                    if (!load_b_in_bounds()) begin
+                        if (load_b_last()) begin
+                            load_k <= 0;
+                            load_c <= 0;
+                            finish_load();
+                        end
+
+                        else begin
+                            advance_b_load();
+                        end
+                    end
+
+                    else if (i_mem_req_ready) begin
+                        o_read_reqs <= o_read_reqs + 64'd1;
+                        load_state  <= L_B_WAIT;
+                    end
+
+                    else begin
+                        o_memory_stall_cycles <= o_memory_stall_cycles + 64'd1;
+                    end
+                end
+
+                L_B_WAIT: begin
+                    if (i_mem_rsp_valid && !i_mem_rsp_write) begin
+                        tile_b[load_buf][load_k][load_c] <= i_mem_rsp_rdata[I_WORD_SIZE - 1:0];
+
+                        if (load_b_last()) begin
+                            load_k <= 0;
+                            load_c <= 0;
+                            finish_load();
+                        end
+
+                        else begin
+                            advance_b_load();
+                            load_state <= L_B_REQ;
+                        end
+                    end
+
+                    else begin
+                        o_memory_stall_cycles <= o_memory_stall_cycles + 64'd1;
+                    end
+                end
+
+                default: begin
+                    load_state <= L_IDLE;
+                    o_error    <= 1'b1;
+                    state      <= S_ERROR;
+                end
+            endcase
 
             unique case (state)
                 S_IDLE: begin
@@ -363,8 +570,11 @@ module tiled_gemm_accelerator
                         o_cycles              <= '0;
                         o_compute_cycles      <= '0;
                         o_memory_stall_cycles <= '0;
+                        o_prefetch_cycles     <= '0;
+                        o_compute_wait_cycles <= '0;
                         o_read_reqs           <= '0;
                         o_write_reqs          <= '0;
+                        o_loaded_tile_count   <= '0;
                         o_tile_count          <= '0;
                         o_error               <= 1'b0;
 
@@ -374,146 +584,87 @@ module tiled_gemm_accelerator
                         end
 
                         else begin
-                            m_dim    <= int'(i_m);
-                            n_dim    <= int'(i_n);
-                            k_dim    <= int'(i_k);
-                            stride_a <= (i_stride_a == '0) ? int'(i_k) : int'(i_stride_a);
-                            stride_b <= (i_stride_b == '0) ? int'(i_n) : int'(i_stride_b);
-                            stride_c <= (i_stride_c == '0) ? int'(i_n) : int'(i_stride_c);
-                            base_a   <= i_base_a;
-                            base_b   <= i_base_b;
-                            base_c   <= i_base_c;
-                            row_base <= 0;
-                            col_base <= 0;
-                            k_base   <= 0;
-                            state    <= S_CLEAR_ARRAY;
+                            m_dim          <= int'(i_m);
+                            n_dim          <= int'(i_n);
+                            k_dim          <= int'(i_k);
+                            stride_a       <= (i_stride_a == '0) ? int'(i_k) : int'(i_stride_a);
+                            stride_b       <= (i_stride_b == '0) ? int'(i_n) : int'(i_stride_b);
+                            stride_c       <= (i_stride_c == '0) ? int'(i_n) : int'(i_stride_c);
+                            base_a         <= i_base_a;
+                            base_b         <= i_base_b;
+                            base_c         <= i_base_c;
+                            row_base       <= 0;
+                            col_base       <= 0;
+                            next_k_to_load <= 0;
+                            state          <= S_TILE_BEGIN;
                         end
                     end
                 end
 
-                S_CLEAR_ARRAY: begin
-                    k_base <= 0;
-                    state  <= S_CLEAR_TILES;
+                S_TILE_BEGIN: begin
+                    clear_all_buffers();
+                    compute_buf    <= 0;
+                    compute_k_base <= 0;
+                    compute_k_span <= 0;
+                    write_r        <= 0;
+                    write_c        <= 0;
+                    start_load(0, 0);
+                    next_k_to_load <= K_TILE;
+                    state          <= S_WAIT_FIRST_LOAD;
                 end
 
-                S_CLEAR_TILES: begin
-                    clear_tiles();
-                    load_r  <= 0;
-                    load_k  <= 0;
-                    load_c  <= 0;
-                    write_r <= 0;
-                    write_c <= 0;
-                    state   <= S_LOAD_A_REQ;
-                end
+                S_WAIT_FIRST_LOAD: begin
+                    if (buffer_valid[0]) begin
+                        select_compute_buffer(0);
 
-                S_LOAD_A_REQ: begin
-                    if (!a_in_bounds()) begin
-                        if (load_a_last()) begin
-                            load_r <= 0;
-                            load_k <= 0;
-                            state  <= S_LOAD_B_REQ;
+                        if (ENABLE_DOUBLE_BUFFER && (K_TILE < k_dim)) begin
+                            start_load(1, K_TILE);
+                            next_k_to_load <= K_TILE + K_TILE;
                         end
 
-                        else begin
-                            advance_a_load();
-                        end
-                    end
-
-                    else if (i_mem_req_ready) begin
-                        o_read_reqs <= o_read_reqs + 64'd1;
-                        state       <= S_LOAD_A_WAIT;
-                    end
-
-                    else begin
-                        o_memory_stall_cycles <= o_memory_stall_cycles + 64'd1;
+                        state <= S_START_COMPUTE;
                     end
                 end
 
-                S_LOAD_A_WAIT: begin
-                    if (i_mem_rsp_valid && !i_mem_rsp_write) begin
-                        tile_a[load_r][load_k] <= i_mem_rsp_rdata[I_WORD_SIZE - 1:0];
-
-                        if (load_a_last()) begin
-                            load_r <= 0;
-                            load_k <= 0;
-                            state  <= S_LOAD_B_REQ;
-                        end
-
-                        else begin
-                            advance_a_load();
-                            state <= S_LOAD_A_REQ;
-                        end
-                    end
-
-                    else begin
-                        o_memory_stall_cycles <= o_memory_stall_cycles + 64'd1;
-                    end
+                S_START_COMPUTE: begin
+                    state <= S_RUN;
                 end
 
-                S_LOAD_B_REQ: begin
-                    if (!b_in_bounds()) begin
-                        if (load_b_last()) begin
-                            load_k <= 0;
-                            load_c <= 0;
-                            state  <= S_START_FEEDER;
-                        end
-
-                        else begin
-                            advance_b_load();
-                        end
-                    end
-
-                    else if (i_mem_req_ready) begin
-                        o_read_reqs <= o_read_reqs + 64'd1;
-                        state       <= S_LOAD_B_WAIT;
-                    end
-
-                    else begin
-                        o_memory_stall_cycles <= o_memory_stall_cycles + 64'd1;
-                    end
-                end
-
-                S_LOAD_B_WAIT: begin
-                    if (i_mem_rsp_valid && !i_mem_rsp_write) begin
-                        tile_b[load_k][load_c] <= i_mem_rsp_rdata[I_WORD_SIZE - 1:0];
-
-                        if (load_b_last()) begin
-                            load_k <= 0;
-                            load_c <= 0;
-                            state  <= S_START_FEEDER;
-                        end
-
-                        else begin
-                            advance_b_load();
-                            state <= S_LOAD_B_REQ;
-                        end
-                    end
-
-                    else begin
-                        o_memory_stall_cycles <= o_memory_stall_cycles + 64'd1;
-                    end
-                end
-
-                S_START_FEEDER: begin
-                    state <= S_RUN_ARRAY;
-                end
-
-                S_RUN_ARRAY: begin
+                S_RUN: begin
                     if (array_done) begin
-                        state <= S_NEXT_K;
+                        if (compute_is_final_k()) begin
+                            write_r <= 0;
+                            write_c <= 0;
+                            state   <= S_WRITE_REQ;
+                        end
+
+                        else if (buffer_valid[other_buf(compute_buf)]) begin
+                            maybe_start_prefetch(compute_buf);
+                            select_compute_buffer(other_buf(compute_buf));
+                            state <= S_START_COMPUTE;
+                        end
+
+                        else begin
+                            if (!ENABLE_DOUBLE_BUFFER && (load_state == L_IDLE)) begin
+                                start_load(other_buf(compute_buf), compute_k_base + compute_k_span);
+                                next_k_to_load <= compute_k_base + compute_k_span + K_TILE;
+                            end
+
+                            state <= S_WAIT_BUFFER;
+                        end
                     end
                 end
 
-                S_NEXT_K: begin
-                    if ((k_base + current_k_span()) >= k_dim) begin
-                        write_r <= 0;
-                        write_c <= 0;
-                        state   <= S_WRITE_REQ;
+                S_WAIT_BUFFER: begin
+                    if (buffer_valid[other_buf(compute_buf)]) begin
+                        maybe_start_prefetch(compute_buf);
+                        select_compute_buffer(other_buf(compute_buf));
+                        state <= S_START_COMPUTE;
                     end
 
-                    else begin
-                        k_base <= k_base + K_TILE;
-                        state  <= S_CLEAR_TILES;
+                    else if (!ENABLE_DOUBLE_BUFFER && (load_state == L_IDLE)) begin
+                        start_load(other_buf(compute_buf), compute_k_base + compute_k_span);
+                        next_k_to_load <= compute_k_base + compute_k_span + K_TILE;
                     end
                 end
 
@@ -560,15 +711,13 @@ module tiled_gemm_accelerator
 
                     if ((col_base + NUM_COLS) < n_dim) begin
                         col_base <= col_base + NUM_COLS;
-                        k_base   <= 0;
-                        state    <= S_CLEAR_ARRAY;
+                        state    <= S_TILE_BEGIN;
                     end
 
                     else if ((row_base + NUM_ROWS) < m_dim) begin
                         row_base <= row_base + NUM_ROWS;
                         col_base <= 0;
-                        k_base   <= 0;
-                        state    <= S_CLEAR_ARRAY;
+                        state    <= S_TILE_BEGIN;
                     end
 
                     else begin
