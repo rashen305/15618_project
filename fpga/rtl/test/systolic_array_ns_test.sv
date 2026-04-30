@@ -7,13 +7,13 @@
  * B columns that stream through with rowValid=0, enabling multi-right-hand-
  * side GEMM without re-feeding A.
  *
- * Phase 1 – standard K=2 wavefront, same matrices as OS/WS tests.
- *   A = [[1,2],[3,4]], B = [[5,6],[7,8]]  →  C = [[19,22],[43,50]]
+ * Phase 1: standard K=2 wavefront, same matrices as OS/WS tests.
+ *   A = [[1,2],[3,4]], B = [[5,6],[7,8]]  ->  C = [[19,22],[43,50]]
  *   Verifies NS produces correct GEMM results.
  *
- * Phase 2 – K=1 A-reuse demo.
- *   Load A = [[2],[3]] (K=1 rank-1), B1 = [[4,5]] → C1 = [[8,10],[12,15]]
- *   Then re-use cached A and stream B2 = [[6,7]]   → C2 = [[12,14],[18,21]]
+ * Phase 2: K=1 A-reuse demo.
+ *   Load A = [[2],[3]] (K=1 rank-1), B1 = [[4,5]] -> C1 = [[8,10],[12,15]]
+ *   Then re-use cached A and stream B2 = [[6,7]] -> C2 = [[12,14],[18,21]]
  *   Verifies the A-stationary caching is preserved across acc_clear.
  */
 
@@ -82,6 +82,7 @@ module systolic_array_ns_test();
     // -----------------------------------------------------------------------
     // Phase 1: Standard K=2 wavefront (same stimulus as OS/WS tests).
     //   A = [[1,2],[3,4]]  B = [[5,6],[7,8]]  expected C = [[19,22],[43,50]]
+    //   
     // -----------------------------------------------------------------------
     initial begin
         rst_l        <= 1'b0;
