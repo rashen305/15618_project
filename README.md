@@ -4,7 +4,7 @@
 **Albert Luo (albertlu), Raymond Shen (rsshen)**  
 15-418/618 Final Project — Spring 2026
 
-📄 [Final Report](15418-final-report.pdf) · 📄 [Milestone Report](15_418_Milestone_Report.pdf) · 📄 [Proposal](15_418_Project_Proposal.pdf)
+📄 [Final Report](15_418_Final_Report.pdf) · 📄 [Milestone Report](15_418_Milestone_Report.pdf) · 📄 [Proposal](15_418_Project_Proposal.pdf)
 
 ---
 
