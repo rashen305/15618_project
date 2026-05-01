@@ -1,81 +1,163 @@
-# GEMM Benchmark Harness (CPU/GPU baselines)
+# Software — CPU/GPU Baselines and Performance Tools
 
-This directory contains a minimal benchmark harness for GEMM.
+This directory contains the CPU and GPU baseline implementations and the
+Python-based performance analysis toolchain.
 
-**CPU:** `ref` (reference), `cpu_naive` (single-thread i–k–j), `cpu_omp` (OpenMP + cache blocking).
+---
 
-**GPU (CUDA):** `gpu_naive` (global memory, one thread per output element), `gpu_tiled` (shared-memory tile; `--tile` **16** or **32**, default **16** if unset or any other value).
+## CPU baseline (`cpu/`)
 
-## Build
+C++ GEMM with OpenMP parallelism and cache-blocked tiling.
 
-From `15618_project/software`:
-
-```bash
-make -j
-```
-
-- Requires **OpenMP** (`-fopenmp` with `g++`).
-- If `$(CUDA_HOME)/bin/nvcc` exists, the build enables CUDA (`-DGEMMBENCH_USE_CUDA`) and links `libcudart`. If `nvcc` is missing, you get a **CPU-only** binary; GPU backends will error at runtime with a clear message.
-
-Useful overrides:
+- `ref`: straightforward dot-product triple loop (correctness reference)
+- `cpu_naive`: improved memory access order, no threading
+- `cpu_omp`: OpenMP outer loop + configurable tile size; tile-64 is optimal on i7-9700
 
 ```bash
-make CUDA_HOME=/path/to/cuda CUDA_ARCH=sm_89 -j
-make USE_CUDA=0 -j          # CPU only, no nvcc
+# Build
+make cpu
+
+# Benchmark (compute-only, no allocation timing)
+./gemm_cpu --size 1024 --tile 64 --threads 8 --compute-only
 ```
 
-`nvcc` often needs an older host compiler; the Makefile defaults `NVCC_HOST_CXX` to `g++-11` when present (`g++-10`, then `g++`).
+---
 
-## Run
+## GPU baseline (`gpu/`)
 
-Reference:
+CUDA GEMM kernels.
+
+- `gpu_naive`: one thread per output element, global memory only
+- `gpu_tiled`: shared-memory tiled kernel; tile-16 and tile-32 sweep
 
 ```bash
-./build/gemmbench --backend ref --size 256 --iters 3 --check 1
+# Build
+nvcc -O3 -arch=sm_75 gemm_gpu.cu -o gemm_gpu
+
+# Benchmark
+./gemm_gpu --size 1024 --tile 16
+./gemm_gpu --size 1024 --tile 32
 ```
 
-Naive CPU:
+---
+
+## Performance tools
+
+### `estimate_perf.py` — analytical accelerator estimator
+
+Mirrors the RTL FSM and memory model to produce cycle-approximate performance
+estimates without running VCS. Runs a 600-point sweep in under 0.2 seconds.
+
+**Compute cycles** are exact (wavefront formula `K + R + C - 2` per K-tile).
+**Memory cycles** are a closed-form lower bound using request count, latency,
+max-outstanding pipelining, accept gaps, and row-buffer locality.
 
 ```bash
-./build/gemmbench --backend cpu_naive --size 512 --iters 3 --check 1
+# Basic sweep
+python3 estimate_perf.py \
+    --arrays 8x8x16,16x16x32,32x32x64,64x64x128 \
+    --shapes 128x128x128,512x512x512,1024x1024x1024 \
+    --dataflows os,ws,is \
+    --mem l1,l2,llc,dram \
+    --double-buffer 0,1 \
+    --clock-mhz 200 \
+    --out sweep.csv
+
+# Append a follow-up run without overwriting the header
+python3 estimate_perf.py --arrays 128x128x256 --shapes 2048x2048x2048 \
+    --dataflows ws --mem dram --clock-mhz 200 \
+    --out sweep.csv --append
 ```
 
-OpenMP + blocked CPU (`--tile` = cache block size; default 64):
+**Important:** default clock is **200 MHz** to match the paper figures.
+Dataflow names: `os` (output-stationary), `ws` (weight-stationary), `is` (input-stationary).
+Memory profiles: `l1`, `l2`, `llc`, `dram` — parameters match `main_memory_model.sv` exactly.
+
+---
+
+### `sweep_hw.py` — VCS simulation driver
+
+Invokes `make bench-engine` for each parameter combination, parses the
+`engine_bench` CSV rows emitted by `systolic_gemm_engine_test.sv`, and appends
+results to a CSV. Use this when you want cycle-exact simulation results rather
+than analytical estimates.
 
 ```bash
-./build/gemmbench --backend cpu_omp --size 1024 --tile 64 --iters 5 --check 1
+# Run a hardware sweep (slow — each point runs VCS)
+python3 sweep_hw.py \
+    --arrays 8x8x16,16x16x32 \
+    --shapes 64x64x64,256x256x256 \
+    --dataflows os,ws,is \
+    --mem l1,dram \
+    --clock-mhz 200 \
+    --out hw_results.csv
 ```
 
-GPU naive / tiled (each timed call includes H2D + kernel + D2H):
+---
+
+### `poster_plots.py` — full poster figure suite
+
+Generates all 9 individual figures plus a 4-up compound panel from the
+estimator CSV. Figures match the final report exactly when run at 200 MHz with
+the L1 default memory model.
 
 ```bash
-./build/gemmbench --backend gpu_naive --size 1024 --iters 20 --check 1
-./build/gemmbench --backend gpu_tiled --size 1024 --tile 16 --iters 20 --check 1
+python3 poster_plots.py \
+    --estimator estimate_perf.py \
+    --plot-dir figures/ \
+    --clock-mhz 200 \
+    --default-mem l1
 ```
 
-Rectangular GEMM:
+Figures produced:
+
+| File | Content |
+|---|---|
+| `fig01_throughput_vs_square_size.png` | Effective GFLOP/s vs N for 5 array sizes |
+| `fig02_throughput_vs_rectangular_shape.png` | 8 representative DL workload shapes |
+| `fig03_dataflow_comparison.png` | OS vs WS vs IS for fixed 32×32 array |
+| `fig04_double_buffer_impact.png` | DBUF=0 vs DBUF=1 with % uplift annotations |
+| `fig05_memory_hierarchy_sensitivity.png` | L1/L2/LLC/DRAM throughput for fixed array |
+| `fig06_roofline.png` | Arithmetic intensity vs achieved throughput, with compute and BW roofs |
+| `fig07_pe_utilization_vs_size.png` | Fill/drain efficiency vs matrix size |
+| `fig08_cycle_breakdown.png` | Stacked compute + prefetch vs memory stall fractions |
+| `fig09_array_scaling.png` | Peak vs achieved throughput as PE count grows |
+| `poster_panel_compound.png` | 4-up summary panel |
+
+---
+
+### `plot_estimates.py` — lightweight per-axis plotter
+
+Auto-detects which dimensions vary in a CSV and renders only the relevant plots.
+Compatible with both `estimate_perf.py` and `sweep_hw.py` output.
 
 ```bash
-./build/gemmbench --backend ref --m 256 --n 512 --k 128 --iters 3 --check 1
+python3 plot_estimates.py \
+    --csv sweep.csv \
+    --plot-dir plots/ \
+    --target-gops 1000
 ```
 
-## Output format
+---
 
-One line per run, for example:
+## CSV schema
 
-`backend=gpu_tiled M=1024 N=1024 K=1024 iters=5 sec_total=... sec_per_iter=... gflops=... check=PASS ...`
+All tools share the same column schema (subset shown):
 
-GPU tiled may show slightly larger float differences vs `ref` under `--check 1`; the harness uses a loose tolerance (`1e-3`).
-
-## CSV sweeps
-
-For repeatable CPU/GPU sweeps, use:
-
-```bash
-./scripts/sweep.py --build --cpu-only --backends ref,cpu_naive,cpu_omp \
-  --sizes 128,256,512,1024 --iters 5 --repeats 3 \
-  --out build/cpu_sweep.csv
-```
-
-With CUDA available, omit `--cpu-only` and include the GPU backends. Rectangular
-cases use `--shapes`, for example `--shapes 256x512x128,512x256x512`.
+| Column | Description |
+|---|---|
+| `array` | e.g. `16x16x32` (ROWSxCOLSxKTILE) |
+| `shape` | e.g. `1024x1024x1024` (MxNxK) |
+| `dataflow` | `OS`, `WS`, or `IS` |
+| `mem_cfg` | Memory profile label + raw parameters |
+| `double_buffer` | `0` or `1` |
+| `clock_mhz` | Simulated frequency |
+| `cycles` | Total modeled cycles |
+| `compute_cycles` | Cycles in S_RUN state |
+| `memory_stall_cycles` | Cycles stalled waiting for memory |
+| `prefetch_cycles` | Cycles where prefetch overlapped compute |
+| `effective_gops` | `2MNK / cycles / clock_mhz * 1000` |
+| `compute_gops` | `2MNK / compute_cycles / clock_mhz * 1000` |
+| `peak_gops` | `2 * R * C * clock_mhz / 1000` |
+| `compute_pe_util` | `macs / (R * C * compute_cycles)` |
+| `arithmetic_intensity` | `ops / bytes_moved` |
