@@ -50,6 +50,7 @@ def run_command(cmd: list[str], cwd: pathlib.Path) -> dict[str, str]:
 
 def add_common_args(cmd: list[str], args: argparse.Namespace, backend: str) -> None:
     cmd += ["--backend", backend, "--iters", str(args.iters), "--seed", str(args.seed)]
+    cmd += ["--timing_mode", str(args.timing_mode)]
     cmd += ["--check", "1" if args.check else "0"]
     cmd += ["--warmup", "1" if args.warmup else "0"]
     if args.tile:
@@ -98,6 +99,7 @@ def main() -> int:
     parser.add_argument("--backends", default="ref,cpu_naive,cpu_omp,gpu_naive,gpu_tiled")
     parser.add_argument("--sizes", default="128,256,512,1024")
     parser.add_argument("--shapes", default="", help="Optional comma list of MxNxK rectangular shapes.")
+    parser.add_argument("--timing_mode", default="end_to_end", help="end_to_end or compute_only.")
     parser.add_argument("--iters", type=int, default=5)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--tile", type=int, default=64)
@@ -122,6 +124,8 @@ def main() -> int:
     rows = list(sweep_rect(args) if args.shapes else sweep_square(args))
     preferred = [
         "backend",
+        "timing_mode",
+        "tile",
         "M",
         "N",
         "K",
