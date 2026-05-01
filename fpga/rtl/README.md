@@ -1,82 +1,70 @@
-# FPGA RTL GEMM Accelerator
+# RTL — Tiled Systolic GEMM Accelerator
 
-This directory contains the SystemVerilog model for the FPGA side of the GEMM
-project. The current focus is simulation-quality architectural exploration:
-cycle-counted main memory, tiled output-stationary systolic arrays, K tiling,
-double buffering, and CSV-producing benchmark sweeps.
+SystemVerilog RTL for the tiled systolic-array GEMM engine and supporting testbenches.
+Simulated with VCS (`-sverilog`). All modules are parameterized and synthesizable.
 
-## Main Modules
+---
 
-- `src/sa_processing_elem.sv`: one output-stationary PE with local accumulator.
-- `src/systolic_array.sv`: parameterized 2D PE mesh.
-- `src/sa_wavefront_feeder.sv`: skewed `A[i][k]` / `B[k][j]` wavefront feeder.
-- `src/main_memory_model.sv`: ready/valid main-memory model with configurable
-  latency, request gaps, bank/row-buffer behavior, and byte masks.
-- `src/tiled_gemm_accelerator.sv`: memory-backed tiled GEMM controller with
-  optional ping-pong tile buffers. With double buffering enabled, it prefetches
-  the next K tile while the current tile streams through the array.
-- `src/systolic_gemm_engine.sv`: selectable multi-shape engine with three
-  systolic-array slots. This lets a single top-level model compare different
-  array dimensions against the same memory interface.
+## Source files
 
-## Tests
+### Architecture
 
-Run from `fpga/rtl` on a machine with VCS:
+| File | Description |
+|---|---|
+| `sa_params.sv` | Package-level constants: `MATRIX_WORD_SIZE`, `SA_ROWS`, `SA_COLS`, `SA_DATAFLOW_OS/WS/NS` |
+| `lib.sv` | Parameterized `register` and `multiplier` primitives used across the design |
+| `sa_processing_elem.sv` | Processing element. One MAC per cycle. Accumulator register cleared on `i_acc_clear`. Stationary-operand registers (`stationaryWeight`, `stationaryInput`) activated by dataflow mode at elaboration time |
+| `sa_wavefront_feeder.sv` | Diagonal injection schedule. Asserts `o_rowsValid[i]` / `o_colsValid[j]` when `k = cycle - i` or `k = cycle - j` is in range. Total active cycles = `K_DIM + NUM_ROWS + NUM_COLS - 2`. Pulses `o_done` on the last cycle |
+| `sa_double_buffered_feeder.sv` | Ping-pong variant. Accepts `i_next_valid` to pre-load the alternate bank while the current tile is feeding. Fires `o_done` then immediately rolls to the next bank if `next_pending` is set — zero idle cycles between tiles |
+| `systolic_array.sv` | R×C PE mesh. Instantiates `sa_processing_elem` in a generate loop. `done_shift` is a `(R-1)+(C-1)`-bit shift register that delays `i_feederDone` to produce `o_compDone` exactly when the last PE has committed its final product |
+| `tiled_gemm_accelerator.sv` | Top-level tile controller. 11-state FSM (`S_IDLE` → `S_TILE_BEGIN` → `S_WAIT_FIRST_LOAD` → `S_START_COMPUTE` → `S_RUN` → `S_WAIT_BUFFER` → `S_WRITE_REQ` → `S_WRITE_WAIT` → `S_NEXT_TILE` → `S_DONE` / `S_ERROR`). Concurrent load FSM (`L_IDLE` → `L_A_REQ` → `L_A_WAIT` → `L_B_REQ` → `L_B_WAIT`). Ping-pong tile buffers `tile_a[2][R][KT]`, `tile_b[2][KT][C]`. Performance counters: `o_cycles`, `o_compute_cycles`, `o_memory_stall_cycles`, `o_prefetch_cycles`, `o_compute_wait_cycles`, `o_read_reqs`, `o_write_reqs`, `o_loaded_tile_count`, `o_tile_count` |
+| `systolic_gemm_engine.sv` | Multi-slot wrapper. Instantiates three `tiled_gemm_accelerator` slots with independent dimensions. Routes the selected slot (`i_array_select`) onto the shared memory port. Raises `o_error` on invalid selection |
+| `main_memory_model.sv` | Cycle-accurate memory model with configurable `READ_LATENCY`, `WRITE_LATENCY`, `MAX_OUTSTANDING` slots, `READ/WRITE_ACCEPT_GAP`, `BANKS`, `ROW_WORDS`, row-hit/miss penalties, and optional row-buffer behaviour. Exposes stat counters and a backdoor task API (`clear_memory`, `write_word`, `read_word`) for testbenches |
+
+### Testbenches
+
+| File | Tests |
+|---|---|
+| `systolic_array_test.sv` | Functional correctness of the R×C array on hand-computed 4×4 × 4×4 and 8×8 cases |
+| `feeder_test.sv` | Wavefront timing: verifies that each PE receives the correct operand pair at the correct cycle |
+| `main_memory_model_test.sv` | Memory model pipeline: checks ready/valid handshake, max-outstanding backpressure, and row-buffer hit/miss accounting |
+| `tiled_gemm_accelerator_test.sv` | End-to-end tiled GEMM across multiple M/N/K configurations; checks C output element-by-element |
+| `systolic_gemm_engine_test.sv` | Multi-slot engine test. Runs a benchmark GEMM and emits `engine_bench_header` / `engine_bench` CSV lines parsed by `sweep_hw.py` |
+| `sa_benchmark_test.sv` | Parameterizable benchmark entry point used by the Makefile `bench-sa` target |
+| `sa_stress_test.sv` | Randomised input stress test with self-checking |
+
+---
+
+## Building and running
 
 ```bash
+# All functional tests
 make regress
+
+# Single benchmark (emits CSV row to stdout)
+make bench-engine \
+    ROWS=16 COLS=16 KTILE=32 \
+    M=512 N=512 K=512 \
+    DATAFLOW_MODE=1 \
+    DBUF=1 \
+    READ_LAT=4 WRITE_LAT=1 \
+    CLOCK_MHZ=200
+
+# Clean build artifacts
+make clean
 ```
 
-Individual tests follow the `test-<name>` pattern:
+The `DATAFLOW_MODE` parameter maps to: `0` = output-stationary, `1` = weight-stationary, `2` = input-stationary.
 
-```bash
-make test-main_memory_model
-make test-tiled_gemm_accelerator
-make test-systolic_gemm_engine
-```
+---
 
-## Single Benchmark
+## Memory model profiles
 
-`sa_benchmark_test.sv` prints one CSV header row and one CSV data row:
+These match the profiles in `../software/estimate_perf.py` exactly.
 
-```bash
-make bench-sa ROWS=4 COLS=4 KTILE=8 M=32 N=32 K=32 \
-  READ_LAT=40 WRITE_LAT=20 READ_GAP=0 WRITE_GAP=0 DBUF=1 CLOCK_MHZ=100
-```
-
-The multi-shape engine benchmark prints one CSV row per slot:
-
-```bash
-make bench-engine
-```
-
-Important reported fields:
-
-- `cycles`: total accelerator cycles.
-- `compute_cycles`: cycles spent with the array running.
-- `prefetch_cycles`: cycles where memory prefetch overlapped array execution.
-- `compute_wait_cycles`: cycles waiting for the next K buffer.
-- `pe_util`: `M*N*K / (ROWS*COLS*compute_cycles)`.
-- `arithmetic_intensity`: modeled operations per byte moved through memory.
-- `projected_gflops`: `ops_per_cycle * CLOCK_MHZ / 1000`.
-
-## Sweep Script
-
-The hardware sweep script repeatedly invokes `make bench-sa` and writes a CSV:
-
-```bash
-./scripts/sweep_hw.py \
-  --arrays 2x2x4,4x4x8,8x4x8 \
-  --shapes 8x8x8,16x16x16,32x32x32 \
-  --mem 20:10,40:20,80:40:1:1 \
-  --double-buffer 1,0 \
-  --repeats 3 \
-  --out build/fpga_sweep.csv
-```
-
-The `--mem` argument is `read_latency:write_latency` or
-`read_latency:write_latency:read_accept_gap:write_accept_gap`.
-
-The intent is to support the final report methodology from the proposal:
-compare array shapes, quantify fill/drain and memory stalls, and produce
-roofline inputs from measured operations per cycle and modeled memory traffic.
+| Profile | Read lat | Write lat | Max outstanding | Row buffer |
+|---|---|---|---|---|
+| L1-like | 4 | 1 | 64 | off |
+| L2-like | 12 | 4 | 32 | off |
+| LLC-like | 36 | 12 | 16 | off |
+| DRAM-like | 120 | 60 | 8 | on (hit=12, miss=60) |
